@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "8a4b04c7-8390-4b05-998c-1e6216ff4ab6",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "8a4b04c7-8390-4b05-998c-1e6216ff4ab6@6c48a",
+      "displayName": "soccer24",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "8a4b04c7-8390-4b05-998c-1e6216ff4ab6",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "8a4b04c7-8390-4b05-998c-1e6216ff4ab6@f9941",
+      "displayName": "soccer24",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 2,
+        "offsetY": 0,
+        "trimX": 12,
+        "trimY": 12,
+        "width": 180,
+        "height": 276,
+        "rawWidth": 200,
+        "rawHeight": 300,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -90,
+            -138,
+            0,
+            90,
+            -138,
+            0,
+            -90,
+            138,
+            0,
+            90,
+            138,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            12,
+            288,
+            192,
+            288,
+            12,
+            12,
+            192,
+            12
+          ],
+          "nuv": [
+            0.06,
+            0.04,
+            0.96,
+            0.04,
+            0.06,
+            0.96,
+            0.96,
+            0.96
+          ],
+          "minPos": [
+            -90,
+            -138,
+            0
+          ],
+          "maxPos": [
+            90,
+            138,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "8a4b04c7-8390-4b05-998c-1e6216ff4ab6@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "8a4b04c7-8390-4b05-998c-1e6216ff4ab6@6c48a"
+  }
+}

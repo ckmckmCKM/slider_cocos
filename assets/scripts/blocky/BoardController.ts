@@ -1,0 +1,895 @@
+import {
+  Color, EventTouch, Graphics, Label, Mask, Node, SpriteFrame, UIOpacity, UITransform, Vec3, tween,
+} from 'cc';
+import { BOARD_MAX_H, BOARD_MAX_W, CELL } from '../utils/Constants';
+import { colorFromHex, shadeHex } from '../utils/Helpers';
+import { ResCache } from '../utils/ResCache';
+import { SoundMgr } from '../utils/SoundMgr';
+import { addLabel, makeNode, setSprite } from '../utils/UIFactory';
+import { ArrowDirection, MechanicType, TypeEnvironment, colorHex, hasMechanic } from './Enums';
+import { pictureResourcePath } from './LevelParser';
+import { LevelConfig, PictureData, PortalData, ShapePictureData, TunnelData, Vec2I, WallIceData } from './LevelTypes';
+
+export interface Piece {
+  id: number;
+  node: Node;
+  cells: Vec2I[];
+  picIndices: number[];
+  idPanelPicture: number;
+  color: number;
+  mechanic: number;
+  arrow: ArrowDirection;
+  isObstacle: boolean;
+  ice: number;
+  lock: number;
+  timeBomb: number;
+  bombLeft: number;
+  mystery: number;
+  idCombineds: number[];
+  idLayered: number;
+  alive: boolean;
+  /** 是否带图可参与拼合 */
+  matchable: boolean;
+  iceLabel?: Label | null;
+  lockLabel?: Label | null;
+  bombLabel?: Label | null;
+}
+
+export interface BoardCallbacks {
+  onHud: () => void;
+  onGoals: () => void;
+  onWin: () => void;
+  onLose: (reason: 'time' | 'bomb') => void;
+  onToast: (msg: string) => void;
+  onPictureComplete?: (picId: number) => void;
+}
+
+interface WallIceRuntime {
+  pos: Vec2I;
+  num: number;
+  node: Node;
+  label: Label;
+}
+
+export class BoardController {
+  root: Node;
+  pieces: Piece[] = [];
+  decor: Node[] = [];
+  pictures: PictureData[] = [];
+  completedPics = new Set<number>();
+  wallIce: WallIceRuntime[] = [];
+  portals: PortalData[] = [];
+  tunnels: { data: TunnelData; queue: number[] }[] = [];
+  board: TypeEnvironment[][] = [];
+  levelIndex = 1;
+  timeLeft = 0;
+  running = false;
+  levelDone = false;
+  loseReason: 'time' | 'bomb' | null = null;
+  tools = { freeze: 2, magnet: 2, slicer: 3, teleport: 1 };
+  activeTool: string | null = null;
+  frozenTimer = 0;
+  cell = CELL;
+  private drag: {
+    piece: Piece;
+    group: Piece[];
+    startCells: Vec2I[][];
+    ox: number;
+    oy: number;
+    moved: boolean;
+  } | null = null;
+  private origin = new Vec3(0, 0, 0);
+  private playMin = { x: 0, y: 0 };
+  private playMax = { x: 0, y: 0 };
+  private cb: BoardCallbacks;
+  private teleportFirst: Piece | null = null;
+
+  constructor(root: Node, cb: BoardCallbacks) {
+    this.root = root;
+    this.cb = cb;
+    this.root.on(Node.EventType.TOUCH_START, this.onDown, this);
+    this.root.on(Node.EventType.TOUCH_MOVE, this.onMove, this);
+    this.root.on(Node.EventType.TOUCH_END, this.onUp, this);
+    this.root.on(Node.EventType.TOUCH_CANCEL, this.onUp, this);
+  }
+
+  clear() {
+    for (const p of this.pieces) p.node.destroy();
+    for (const d of this.decor) d.destroy();
+    for (const w of this.wallIce) w.node.destroy();
+    this.pieces = [];
+    this.decor = [];
+    this.wallIce = [];
+    this.portals = [];
+    this.tunnels = [];
+    this.pictures = [];
+    this.completedPics.clear();
+    this.drag = null;
+    this.teleportFirst = null;
+    this.board = [];
+    this.loseReason = null;
+  }
+
+  async startLevel(idx: number, lvl: LevelConfig) {
+    this.clear();
+    this.levelIndex = idx;
+    this.levelDone = false;
+    this.running = true;
+    this.activeTool = null;
+    this.frozenTimer = 0;
+    this.timeLeft = lvl.timeLimit || 180;
+    this.pictures = lvl.listPictureData.slice();
+    this.board = lvl.board;
+    await this.buildBoard(lvl);
+    this.checkAllPictures();
+    this.cb.onHud();
+    this.cb.onGoals();
+  }
+
+  remainingPictures(): number {
+    return this.pictures.filter((p) => !this.completedPics.has(p.id)).length;
+  }
+
+  goals(): { id: number; path: string; done: boolean }[] {
+    return this.pictures.map((p) => ({
+      id: p.id,
+      path: pictureResourcePath(p.nameFilePicture),
+      done: this.completedPics.has(p.id),
+    }));
+  }
+
+  tick(dt: number) {
+    if (!this.running || this.levelDone) return;
+    if (this.frozenTimer > 0) {
+      this.frozenTimer -= dt;
+    } else {
+      this.timeLeft -= dt;
+    }
+    this.tickBombs(dt);
+    this.cb.onHud();
+    if (this.timeLeft <= 0) {
+      this.timeLeft = 0;
+      this.fail('time');
+    }
+  }
+
+  keepPlaying(extraSec: number) {
+    this.timeLeft = Math.max(this.timeLeft, 0) + extraSec;
+    this.levelDone = false;
+    this.running = true;
+    this.loseReason = null;
+    this.cb.onHud();
+  }
+
+  keepPlayingBomb() {
+    for (const p of this.pieces) {
+      if (!p.alive || p.timeBomb <= 0) continue;
+      p.bombLeft = Math.max(p.bombLeft, p.timeBomb);
+      if (p.bombLabel) p.bombLabel.string = String(Math.ceil(p.bombLeft));
+    }
+    this.levelDone = false;
+    this.running = true;
+    this.loseReason = null;
+    this.cb.onHud();
+  }
+
+  useFreeze() {
+    if (this.tools.freeze <= 0 || !this.running) return;
+    this.tools.freeze--;
+    this.frozenTimer = 15;
+    SoundMgr.play('time');
+    this.cb.onToast('冻结 15 秒');
+    this.cb.onHud();
+  }
+
+  setActiveTool(kind: string | null) {
+    this.activeTool = kind;
+    this.teleportFirst = null;
+  }
+
+  // ─── build ───────────────────────────────────────────
+
+  private async buildBoard(lvl: LevelConfig) {
+    const ground = this.collectGround(lvl.board);
+    if (!ground.length) return;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    for (const c of ground) {
+      minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x);
+      minY = Math.min(minY, c.y); maxY = Math.max(maxY, c.y);
+    }
+    this.playMin = { x: minX, y: minY };
+    this.playMax = { x: maxX, y: maxY };
+    const bw = maxX - minX + 1;
+    const bh = maxY - minY + 1;
+    this.cell = Math.max(36, Math.floor(Math.min(
+      BOARD_MAX_W / (bw + 1.2),
+      BOARD_MAX_H / (bh + 1.2),
+      110,
+    )));
+    const C = this.cell;
+    const cxm = (minX + maxX) / 2;
+    const cym = (minY + maxY) / 2;
+    this.origin.set(-cxm * C, cym * C, 0);
+
+    const tray = makeNode('tray', this.root, (bw + 0.7) * C, (bh + 0.7) * C);
+    const tg = tray.addComponent(Graphics);
+    tg.fillColor = colorFromHex('#6b4226');
+    tg.roundRect(-(bw + 0.7) * C / 2, -(bh + 0.7) * C / 2, (bw + 0.7) * C, (bh + 0.7) * C, 16);
+    tg.fill();
+    this.decor.push(tray);
+
+    for (const c of ground) {
+      const cell = makeNode('cell', this.root, C * 0.92, C * 0.92);
+      cell.setPosition(this.gridToLocal(c.x, c.y));
+      const g = cell.addComponent(Graphics);
+      g.fillColor = colorFromHex('#5a351c');
+      g.roundRect(-C * 0.46, -C * 0.46, C * 0.92, C * 0.92, 6);
+      g.fill();
+      this.decor.push(cell);
+    }
+
+    // color paths
+    for (const cp of lvl.listColorPathData) {
+      const n = makeNode('cpath', this.root, C * 0.7, C * 0.7);
+      n.setPosition(this.gridToLocal(cp.pos.x, cp.pos.y));
+      const g = n.addComponent(Graphics);
+      const col = colorFromHex(colorHex(cp.color));
+      col.a = 90;
+      g.fillColor = col;
+      g.roundRect(-C * 0.35, -C * 0.35, C * 0.7, C * 0.7, 4);
+      g.fill();
+      this.decor.push(n);
+    }
+
+    // wall ice
+    for (const w of lvl.listWallIceData) {
+      await this.spawnWallIce(w);
+    }
+
+    // portals / grinders / tunnels / roller / rotator
+    this.portals = lvl.listPortalData.slice();
+    for (const p of lvl.listPortalData) {
+      this.spawnMarker(p.pos, colorHex(p.color), 'P');
+    }
+    for (const g of lvl.listGrinderData) {
+      this.spawnMarker(g.pos, '#ef5350', 'G');
+    }
+    this.tunnels = lvl.listTunnelData.map((t) => ({ data: t, queue: t.listIdBlock.slice() }));
+    for (const t of lvl.listTunnelData) {
+      this.spawnMarker(t.pos, '#8d6e63', 'T');
+    }
+    for (const r of lvl.listRollerDoorData) {
+      this.spawnMarker(r.pos, '#78909c', 'R');
+    }
+    for (const r of lvl.listRotatorData) {
+      this.spawnMarker(r.pos, '#26a69a', 'O');
+    }
+    for (const b of lvl.listWoodenBoxData) {
+      this.spawnMarker(b.pos, '#a1887f', 'W');
+    }
+
+    const picMap = new Map(lvl.listPictureData.map((p) => [p.id, p]));
+    for (const s of lvl.listShapePictureData) {
+      const piece = await this.makePiece(s, picMap.get(s.idPanelPicture) || null);
+      this.pieces.push(piece);
+    }
+  }
+
+  private collectGround(board: TypeEnvironment[][]): Vec2I[] {
+    const out: Vec2I[] = [];
+    for (let y = 0; y < board.length; y++) {
+      const row = board[y];
+      for (let x = 0; x < row.length; x++) {
+        if (row[x] === TypeEnvironment.Ground) out.push({ x, y });
+      }
+    }
+    return out;
+  }
+
+  private spawnMarker(pos: Vec2I, hex: string, tag: string) {
+    const C = this.cell;
+    const n = makeNode(`m_${tag}`, this.root, C * 0.55, C * 0.55);
+    n.setPosition(this.gridToLocal(pos.x, pos.y));
+    const g = n.addComponent(Graphics);
+    g.fillColor = colorFromHex(hex);
+    g.circle(0, 0, C * 0.22);
+    g.fill();
+    addLabel(makeNode('t', n, C * 0.5, C * 0.4), tag, 16, '#ffffff');
+    this.decor.push(n);
+  }
+
+  private async spawnWallIce(w: WallIceData) {
+    const C = this.cell;
+    const n = makeNode('wallIce', this.root, C * 0.95, C * 0.95);
+    n.setPosition(this.gridToLocal(w.pos.x, w.pos.y));
+    const g = n.addComponent(Graphics);
+    g.fillColor = new Color(180, 220, 255, 200);
+    g.roundRect(-C * 0.45, -C * 0.45, C * 0.9, C * 0.9, 6);
+    g.fill();
+    const label = addLabel(makeNode('txt', n, C * 0.8, C * 0.5), String(w.num), 22, '#0d47a1');
+    this.wallIce.push({ pos: { ...w.pos }, num: w.num, node: n, label });
+  }
+
+  private async makePiece(s: ShapePictureData, pic: PictureData | null): Promise<Piece> {
+    const C = this.cell;
+    const cells = s.listPos.map((p) => ({ x: p.x, y: p.y }));
+    const matchable = !s.isObstacle && s.idPanelPicture >= 0 && s.listIndexPicture.some((i) => i >= 0);
+    const hex = s.isObstacle
+      ? (hasMechanic(s.mechanic, MechanicType.Stone) ? '#78909c' : hasMechanic(s.mechanic, MechanicType.Wooden) ? '#a67c52' : '#8a4a2a')
+      : colorHex(s.color);
+
+    const xs = cells.map((c) => c.x);
+    const ys = cells.map((c) => c.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const pw = (maxX - minX + 1) * C;
+    const ph = (maxY - minY + 1) * C;
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+
+    const node = makeNode(`piece_${s.id}`, this.root, pw, ph);
+    node.setPosition(this.gridToLocal(cx, cy));
+
+    // 整块连续底板：格与格贴满，避免「被切开」感
+    const body = node.addComponent(Graphics);
+    const pad = 0.5; // 轻微重叠消缝
+    body.fillColor = colorFromHex(hex);
+    for (const c of cells) {
+      const lx = (c.x - cx) * C;
+      const ly = -(c.y - cy) * C;
+      body.rect(lx - C / 2 - pad, ly - C / 2 - pad, C + pad * 2, C + pad * 2);
+    }
+    body.fill();
+    // 只描外轮廓：每格描边会显得碎，改为整块描边
+    body.strokeColor = colorFromHex(shadeHex(hex, 0.55));
+    body.lineWidth = 3;
+    for (const c of cells) {
+      const lx = (c.x - cx) * C;
+      const ly = -(c.y - cy) * C;
+      const neighbors = {
+        l: cells.some((o) => o.x === c.x - 1 && o.y === c.y),
+        r: cells.some((o) => o.x === c.x + 1 && o.y === c.y),
+        u: cells.some((o) => o.x === c.x && o.y === c.y - 1),
+        d: cells.some((o) => o.x === c.x && o.y === c.y + 1),
+      };
+      const x0 = lx - C / 2, x1 = lx + C / 2, y0 = ly - C / 2, y1 = ly + C / 2;
+      if (!neighbors.l) { body.moveTo(x0, y0); body.lineTo(x0, y1); }
+      if (!neighbors.r) { body.moveTo(x1, y0); body.lineTo(x1, y1); }
+      if (!neighbors.u) { body.moveTo(x0, y1); body.lineTo(x1, y1); }
+      if (!neighbors.d) { body.moveTo(x0, y0); body.lineTo(x1, y0); }
+    }
+    body.stroke();
+
+    if (matchable && pic) {
+      const sf = await ResCache.loadSprite(pictureResourcePath(pic.nameFilePicture));
+      if (sf) this.placePiecePicture(node, sf, pic, cells, s.listIndexPicture, cx, cy, C);
+    }
+
+    const piece: Piece = {
+      id: s.id,
+      node,
+      cells,
+      picIndices: s.listIndexPicture.slice(),
+      idPanelPicture: s.idPanelPicture,
+      color: s.color,
+      mechanic: s.mechanic,
+      arrow: s.arrowDirection,
+      isObstacle: s.isObstacle,
+      ice: s.numberIce,
+      lock: s.numberLock,
+      timeBomb: s.timeBomb,
+      bombLeft: s.timeBomb,
+      mystery: s.numberMystery,
+      idCombineds: s.idCombineds.slice(),
+      idLayered: s.idLayered,
+      alive: true,
+      matchable,
+    };
+
+    this.applyOverlayIcons(piece, C);
+    return piece;
+  }
+
+  /** 整块一张图：用 polyomino Mask 裁切，格间无缝 */
+  private placePiecePicture(
+    parent: Node,
+    sf: SpriteFrame,
+    pic: PictureData,
+    cells: Vec2I[],
+    indices: number[],
+    cx: number,
+    cy: number,
+    C: number,
+  ) {
+    let refI = -1;
+    for (let i = 0; i < indices.length; i++) {
+      if (indices[i] >= 0) { refI = i; break; }
+    }
+    if (refI < 0) return;
+
+    const w = pic.width;
+    const h = pic.height;
+    const maskNode = makeNode('picMask', parent, (Math.max(...cells.map((c) => c.x)) - Math.min(...cells.map((c) => c.x)) + 1) * C,
+      (Math.max(...cells.map((c) => c.y)) - Math.min(...cells.map((c) => c.y)) + 1) * C);
+    maskNode.setPosition(0, 0, 0);
+    const mask = maskNode.addComponent(Mask);
+    mask.type = Mask.Type.GRAPHICS_STENCIL;
+    const mg = maskNode.getComponent(Graphics) || maskNode.addComponent(Graphics);
+    mg.clear();
+    const pad = 0.5;
+    for (let i = 0; i < cells.length; i++) {
+      if (indices[i] < 0) continue;
+      const lx = (cells[i].x - cx) * C;
+      const ly = -(cells[i].y - cy) * C;
+      mg.rect(lx - C / 2 - pad, ly - C / 2 - pad, C + pad * 2, C + pad * 2);
+    }
+    mg.fill();
+
+    const ref = cells[refI];
+    const refIdx = indices[refI];
+    const refCol = refIdx % w;
+    const refRow = Math.floor(refIdx / w);
+    const cellLocalX = (ref.x - cx) * C;
+    const cellLocalY = -(ref.y - cy) * C;
+    // 碎片中心在整图局部坐标（图中心为原点，row0 在上）
+    const fx = (refCol + 0.5 - w / 2) * C;
+    const fy = (h / 2 - refRow - 0.5) * C;
+
+    const img = makeNode('img', maskNode, w * C, h * C);
+    img.setPosition(cellLocalX - fx, cellLocalY - fy, 0);
+    setSprite(img, sf);
+  }
+
+  private applyOverlayIcons(piece: Piece, C: number) {
+    if (piece.ice > 0) {
+      const n = makeNode('ice', piece.node, C * 0.5, C * 0.5);
+      n.setPosition(0, C * 0.15, 0);
+      const g = n.addComponent(Graphics);
+      g.fillColor = new Color(180, 220, 255, 180);
+      g.circle(0, 0, C * 0.2);
+      g.fill();
+      piece.iceLabel = addLabel(makeNode('txt', n, C * 0.4, C * 0.4), String(piece.ice), 18, '#0d47a1');
+    }
+    if (piece.lock > 0) {
+      const n = makeNode('lock', piece.node, C * 0.45, C * 0.45);
+      n.setPosition(0, -C * 0.15, 0);
+      const g = n.addComponent(Graphics);
+      g.fillColor = colorFromHex('#ffd54f');
+      g.roundRect(-C * 0.18, -C * 0.18, C * 0.36, C * 0.36, 4);
+      g.fill();
+      piece.lockLabel = addLabel(makeNode('txt', n, C * 0.4, C * 0.4), String(piece.lock), 16, '#5d4037');
+    }
+    if (piece.timeBomb > 0) {
+      const n = makeNode('bomb', piece.node, C * 0.5, C * 0.5);
+      n.setPosition(C * 0.2, C * 0.2, 0);
+      const g = n.addComponent(Graphics);
+      g.fillColor = colorFromHex('#c62828');
+      g.circle(0, 0, C * 0.18);
+      g.fill();
+      piece.bombLabel = addLabel(makeNode('txt', n, C * 0.4, C * 0.4), String(Math.ceil(piece.bombLeft)), 16, '#ffffff');
+    }
+    if (hasMechanic(piece.mechanic, MechanicType.Pinned)) {
+      const n = makeNode('pin', piece.node, C * 0.3, C * 0.3);
+      const g = n.addComponent(Graphics);
+      g.fillColor = colorFromHex('#37474f');
+      g.circle(0, 0, C * 0.1);
+      g.fill();
+    }
+    if (piece.arrow === ArrowDirection.Horizontal || piece.arrow === ArrowDirection.Vertical) {
+      const n = makeNode('arrow', piece.node, C * 0.4, C * 0.4);
+      n.setPosition(0, -C * 0.35, 0);
+      addLabel(makeNode('txt', n, C * 0.4, C * 0.4), piece.arrow === ArrowDirection.Horizontal ? '↔' : '↕', 20, '#ffffff');
+    }
+  }
+
+  private gridToLocal(x: number, y: number): Vec3 {
+    const C = this.cell;
+    return new Vec3(this.origin.x + x * C, this.origin.y - y * C, 0);
+  }
+
+  private localToGrid(lx: number, ly: number): { x: number; y: number } {
+    const C = this.cell;
+    return {
+      x: (lx - this.origin.x) / C,
+      y: (this.origin.y - ly) / C,
+    };
+  }
+
+  private syncPieceNode(piece: Piece) {
+    const xs = piece.cells.map((c) => c.x);
+    const ys = piece.cells.map((c) => c.y);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    piece.node.setPosition(this.gridToLocal(cx, cy));
+  }
+
+  // ─── input ───────────────────────────────────────────
+
+  private onDown(e: EventTouch) {
+    if (!this.running || this.levelDone) return;
+    const ui = e.getUILocation();
+    const ut = this.root.getComponent(UITransform)!;
+    const local = ut.convertToNodeSpaceAR(new Vec3(ui.x, ui.y, 0));
+    const piece = this.hitTest(local.x, local.y);
+    if (!piece) return;
+
+    if (this.activeTool) {
+      this.useToolOn(this.activeTool, piece);
+      return;
+    }
+
+    if (!this.canMove(piece)) return;
+    const group = this.getMoveGroup(piece);
+    this.drag = {
+      piece,
+      group,
+      startCells: group.map((p) => p.cells.map((c) => ({ ...c }))),
+      ox: local.x,
+      oy: local.y,
+      moved: false,
+    };
+    for (const p of group) p.node.setSiblingIndex(this.root.children.length - 1);
+  }
+
+  private onMove(e: EventTouch) {
+    if (!this.drag) return;
+    const ui = e.getUILocation();
+    const ut = this.root.getComponent(UITransform)!;
+    const local = ut.convertToNodeSpaceAR(new Vec3(ui.x, ui.y, 0));
+    let dx = local.x - this.drag.ox;
+    let dy = local.y - this.drag.oy;
+    const C = this.cell;
+
+    const arrow = this.drag.piece.arrow;
+    if (arrow === ArrowDirection.Horizontal) dy = 0;
+    if (arrow === ArrowDirection.Vertical) dx = 0;
+
+    const stepX = Math.round(dx / C);
+    const stepY = Math.round(-dy / C);
+    if (stepX === 0 && stepY === 0) {
+      // soft follow
+      for (let i = 0; i < this.drag.group.length; i++) {
+        const p = this.drag.group[i];
+        const start = this.drag.startCells[i];
+        const xs = start.map((c) => c.x);
+        const ys = start.map((c) => c.y);
+        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+        const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+        const base = this.gridToLocal(cx, cy);
+        p.node.setPosition(base.x + dx, base.y + dy, 0);
+      }
+      return;
+    }
+
+    this.drag.moved = true;
+    if (this.tryMoveGroup(this.drag.group, this.drag.startCells, stepX, stepY)) {
+      for (const p of this.drag.group) this.syncPieceNode(p);
+    } else {
+      // revert soft
+      for (let i = 0; i < this.drag.group.length; i++) {
+        this.drag.group[i].cells = this.drag.startCells[i].map((c) => ({ ...c }));
+        this.syncPieceNode(this.drag.group[i]);
+      }
+    }
+  }
+
+  private onUp() {
+    if (!this.drag) return;
+    const { group, startCells, moved } = this.drag;
+    // snap
+    for (const p of group) {
+      p.cells = p.cells.map((c) => ({ x: Math.round(c.x), y: Math.round(c.y) }));
+      this.syncPieceNode(p);
+    }
+    const changed = moved && group.some((p, i) =>
+      p.cells.some((c, j) => c.x !== startCells[i][j].x || c.y !== startCells[i][j].y));
+    this.drag = null;
+    if (changed) {
+      SoundMgr.play('move1');
+      this.onAfterMove();
+    }
+  }
+
+  private hitTest(lx: number, ly: number): Piece | null {
+    const g = this.localToGrid(lx, ly);
+    const gx = Math.round(g.x);
+    const gy = Math.round(g.y);
+    for (let i = this.pieces.length - 1; i >= 0; i--) {
+      const p = this.pieces[i];
+      if (!p.alive) continue;
+      if (p.cells.some((c) => c.x === gx && c.y === gy)) return p;
+    }
+    return null;
+  }
+
+  private canMove(p: Piece): boolean {
+    if (!p.alive) return false;
+    if (p.isObstacle && !hasMechanic(p.mechanic, MechanicType.Wooden) && !hasMechanic(p.mechanic, MechanicType.Stone)) {
+      // pure border obstacle
+      if (!p.matchable) return false;
+    }
+    if (hasMechanic(p.mechanic, MechanicType.Pinned)) return false;
+    if (p.ice > 0) return false;
+    if (p.lock > 0) return false;
+    if (p.mystery > 0) return false;
+    // stone/wood obstacles that are not matchable can still slide in Unity
+    if (!p.matchable && p.isObstacle && !hasMechanic(p.mechanic, MechanicType.Wooden) && !hasMechanic(p.mechanic, MechanicType.Stone)) {
+      return false;
+    }
+    if (!p.matchable && p.isObstacle) return true;
+    return true;
+  }
+
+  private getMoveGroup(p: Piece): Piece[] {
+    if (!p.idCombineds.length) return [p];
+    const ids = new Set<number>([p.id, ...p.idCombineds]);
+    return this.pieces.filter((x) => x.alive && ids.has(x.id));
+  }
+
+  private tryMoveGroup(group: Piece[], startCells: Vec2I[][], stepX: number, stepY: number): boolean {
+    const proposed: Vec2I[][] = startCells.map((cells) =>
+      cells.map((c) => ({ x: c.x + stepX, y: c.y + stepY })),
+    );
+    const groupIds = new Set(group.map((p) => p.id));
+    for (let i = 0; i < group.length; i++) {
+      for (const c of proposed[i]) {
+        if (!this.isWalkable(c.x, c.y)) return false;
+        if (this.wallIce.some((w) => w.num > 0 && w.pos.x === c.x && w.pos.y === c.y)) return false;
+        for (const other of this.pieces) {
+          if (!other.alive || groupIds.has(other.id)) continue;
+          if (other.cells.some((oc) => oc.x === c.x && oc.y === c.y)) return false;
+        }
+      }
+    }
+    for (let i = 0; i < group.length; i++) group[i].cells = proposed[i];
+    return true;
+  }
+
+  private isWalkable(x: number, y: number): boolean {
+    if (y < 0 || y >= this.board.length) return false;
+    const row = this.board[y];
+    if (x < 0 || x >= row.length) return false;
+    return row[x] === TypeEnvironment.Ground;
+  }
+
+  private onAfterMove() {
+    this.tryPortalTeleport();
+    this.checkAllPictures();
+    this.cb.onHud();
+    this.cb.onGoals();
+  }
+
+  /** 同色传送门：方块踩入入口后整体平移到出口 */
+  private tryPortalTeleport() {
+    if (this.portals.length < 2) return;
+    for (const piece of this.pieces) {
+      if (!piece.alive) continue;
+      for (const portal of this.portals) {
+        if (!piece.cells.some((c) => c.x === portal.pos.x && c.y === portal.pos.y)) continue;
+        const exit = this.portals.find((p) => p !== portal && p.color === portal.color);
+        if (!exit) continue;
+        const dx = exit.pos.x - portal.pos.x;
+        const dy = exit.pos.y - portal.pos.y;
+        if (dx === 0 && dy === 0) continue;
+        const start = [piece.cells.map((c) => ({ ...c }))];
+        if (this.tryMoveGroup([piece], start, dx, dy)) {
+          this.syncPieceNode(piece);
+          SoundMgr.play('click');
+        }
+        return; // 每次移动最多传送一次
+      }
+    }
+  }
+
+  // ─── picture complete ────────────────────────────────
+
+  private checkAllPictures() {
+    let any = false;
+    for (const pic of this.pictures) {
+      if (this.completedPics.has(pic.id)) continue;
+      if (this.isPictureAssembled(pic)) {
+        this.completePicture(pic);
+        any = true;
+      }
+    }
+    if (any) {
+      // ice/lock/wallIce tick when a picture completes
+      this.meltIce(1);
+      this.tickWallIce(1);
+      this.revealMystery(1);
+      this.checkAllPictures();
+      if (this.remainingPictures() === 0) {
+        this.running = false;
+        this.levelDone = true;
+        this.cb.onWin();
+      }
+    }
+  }
+
+  private isPictureAssembled(pic: PictureData): boolean {
+    const cells: { x: number; y: number; idx: number }[] = [];
+    for (const p of this.pieces) {
+      if (!p.alive || p.idPanelPicture !== pic.id) continue;
+      if (p.ice > 0 || p.lock > 0 || p.mystery > 0) return false;
+      for (let i = 0; i < p.cells.length; i++) {
+        const idx = p.picIndices[i];
+        if (idx < 0) continue;
+        cells.push({ x: p.cells[i].x, y: p.cells[i].y, idx });
+      }
+    }
+    const expected = pic.width * pic.height;
+    if (cells.length < expected) return false;
+    // unique indices
+    const seen = new Set<number>();
+    for (const c of cells) {
+      if (seen.has(c.idx)) return false;
+      seen.add(c.idx);
+    }
+    if (seen.size < expected) return false;
+
+    const ref = cells[0];
+    const refCol = ref.idx % pic.width;
+    const refRow = Math.floor(ref.idx / pic.width);
+    for (const c of cells) {
+      const col = c.idx % pic.width;
+      const row = Math.floor(c.idx / pic.width);
+      const edx = col - refCol;
+      const edy = row - refRow;
+      if (c.x - ref.x !== edx || c.y - ref.y !== edy) return false;
+    }
+    return true;
+  }
+
+  private completePicture(pic: PictureData) {
+    this.completedPics.add(pic.id);
+    SoundMgr.play('match');
+    const members = this.pieces.filter((p) => p.alive && p.idPanelPicture === pic.id && p.matchable);
+    // key unlock
+    const hadKey = members.some((p) => hasMechanic(p.mechanic, MechanicType.Key));
+    for (const p of members) {
+      p.alive = false;
+      this.flyOut(p);
+    }
+    if (hadKey) this.unlockLocks(1);
+    // grinder / roller door counters — decrement on picture complete
+    this.cb.onPictureComplete?.(pic.id);
+  }
+
+  private flyOut(p: Piece) {
+    const op = p.node.getComponent(UIOpacity) || p.node.addComponent(UIOpacity);
+    tween(p.node)
+      .to(0.35, { position: new Vec3(p.node.position.x, p.node.position.y + 160, 0), scale: new Vec3(0.2, 0.2, 1) }, { easing: 'quadOut' })
+      .start();
+    tween(op).to(0.35, { opacity: 0 }).call(() => p.node.destroy()).start();
+  }
+
+  private meltIce(n: number) {
+    for (const p of this.pieces) {
+      if (!p.alive || p.ice <= 0) continue;
+      p.ice = Math.max(0, p.ice - n);
+      if (p.iceLabel) p.iceLabel.string = String(p.ice);
+      if (p.ice <= 0) {
+        const iceNode = p.node.getChildByName('ice');
+        if (iceNode) iceNode.destroy();
+        p.iceLabel = null;
+        SoundMgr.play('ice');
+      }
+    }
+  }
+
+  private unlockLocks(n: number) {
+    for (const p of this.pieces) {
+      if (!p.alive || p.lock <= 0) continue;
+      p.lock = Math.max(0, p.lock - n);
+      if (p.lockLabel) p.lockLabel.string = String(p.lock);
+      if (p.lock <= 0) {
+        const nLock = p.node.getChildByName('lock');
+        if (nLock) nLock.destroy();
+        p.lockLabel = null;
+      }
+    }
+  }
+
+  private tickWallIce(n: number) {
+    for (const w of this.wallIce) {
+      if (w.num <= 0) continue;
+      w.num = Math.max(0, w.num - n);
+      w.label.string = String(w.num);
+      if (w.num <= 0) {
+        w.node.destroy();
+      }
+    }
+    this.wallIce = this.wallIce.filter((w) => w.num > 0);
+  }
+
+  private revealMystery(n: number) {
+    for (const p of this.pieces) {
+      if (!p.alive || p.mystery <= 0) continue;
+      p.mystery = Math.max(0, p.mystery - n);
+    }
+  }
+
+  private tickBombs(dt: number) {
+    if (this.frozenTimer > 0) return;
+    for (const p of this.pieces) {
+      if (!p.alive || p.timeBomb <= 0) continue;
+      p.bombLeft -= dt;
+      if (p.bombLabel) p.bombLabel.string = String(Math.max(0, Math.ceil(p.bombLeft)));
+      if (p.bombLeft <= 0) {
+        this.fail('bomb');
+        return;
+      }
+    }
+  }
+
+  private fail(reason: 'time' | 'bomb') {
+    this.running = false;
+    this.levelDone = true;
+    this.loseReason = reason;
+    SoundMgr.play('lose');
+    this.cb.onLose(reason);
+  }
+
+  // ─── boosters ────────────────────────────────────────
+
+  private useToolOn(kind: string, piece: Piece) {
+    if ((this.tools as any)[kind] <= 0) return;
+    if (kind === 'slicer') {
+      if (!piece.alive || piece.ice > 0 || piece.lock > 0) {
+        this.cb.onToast('无法切开');
+        return;
+      }
+      this.tools.slicer--;
+      SoundMgr.play('hammer');
+      piece.alive = false;
+      this.flyOut(piece);
+      this.activeTool = null;
+      this.onAfterMove();
+    } else if (kind === 'magnet') {
+      if (!piece.matchable || piece.ice > 0 || piece.lock > 0) {
+        this.cb.onToast('无法使用磁铁');
+        return;
+      }
+      this.tools.magnet--;
+      SoundMgr.play('magnet');
+      const picId = piece.idPanelPicture;
+      const targets = this.pieces.filter((p) =>
+        p.alive && p.idPanelPicture === picId && p.matchable && p.ice <= 0 && p.lock <= 0);
+      for (const p of targets) { p.alive = false; this.flyOut(p); }
+      this.completedPics.add(picId);
+      this.activeTool = null;
+      this.meltIce(1);
+      this.tickWallIce(1);
+      this.cb.onHud();
+      this.cb.onGoals();
+      if (this.remainingPictures() === 0) {
+        this.running = false;
+        this.levelDone = true;
+        this.cb.onWin();
+      } else {
+        this.checkAllPictures();
+      }
+    } else if (kind === 'teleport') {
+      if (!this.teleportFirst) {
+        this.teleportFirst = piece;
+        this.cb.onToast('再选一块交换位置');
+        return;
+      }
+      if (this.teleportFirst === piece) return;
+      this.tools.teleport--;
+      const a = this.teleportFirst;
+      const b = piece;
+      const tmp = a.cells.map((c) => ({ ...c }));
+      a.cells = b.cells.map((c) => ({ ...c }));
+      b.cells = tmp;
+      this.syncPieceNode(a);
+      this.syncPieceNode(b);
+      this.teleportFirst = null;
+      this.activeTool = null;
+      SoundMgr.play('click');
+      this.onAfterMove();
+    }
+  }
+}

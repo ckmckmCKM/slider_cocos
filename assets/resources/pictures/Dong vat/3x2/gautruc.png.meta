@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "d13d59ac-da42-422c-af03-bcda42b60fae",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "d13d59ac-da42-422c-af03-bcda42b60fae@6c48a",
+      "displayName": "gautruc",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "d13d59ac-da42-422c-af03-bcda42b60fae",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "d13d59ac-da42-422c-af03-bcda42b60fae@f9941",
+      "displayName": "gautruc",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": 9,
+        "offsetY": 0,
+        "trimX": 18,
+        "trimY": 12,
+        "width": 282,
+        "height": 276,
+        "rawWidth": 300,
+        "rawHeight": 300,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -141,
+            -138,
+            0,
+            141,
+            -138,
+            0,
+            -141,
+            138,
+            0,
+            141,
+            138,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            18,
+            288,
+            300,
+            288,
+            18,
+            12,
+            300,
+            12
+          ],
+          "nuv": [
+            0.06,
+            0.04,
+            1,
+            0.04,
+            0.06,
+            0.96,
+            1,
+            0.96
+          ],
+          "minPos": [
+            -141,
+            -138,
+            0
+          ],
+          "maxPos": [
+            141,
+            138,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "d13d59ac-da42-422c-af03-bcda42b60fae@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "d13d59ac-da42-422c-af03-bcda42b60fae@6c48a"
+  }
+}

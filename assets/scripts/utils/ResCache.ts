@@ -1,10 +1,17 @@
-import { JsonAsset, SpriteFrame, Texture2D, resources, ImageAsset } from 'cc';
+import { JsonAsset, SpriteFrame, Texture2D, resources, ImageAsset, TextAsset } from 'cc';
+import { LevelParser } from '../blocky/LevelParser';
+import { LevelConfig } from '../blocky/LevelTypes';
 import { LevelsMap } from './LevelTypes';
 
 export class ResCache {
   private static _levels: LevelsMap | null = null;
+  private static _brLevels = new Map<number, LevelConfig>();
   private static _sf: Record<string, SpriteFrame> = {};
+  private static _maxBrLevel = 650;
 
+  static maxBrLevel() { return this._maxBrLevel; }
+
+  /** 旧版 all.json（兼容） */
   static async loadLevels(): Promise<LevelsMap> {
     if (this._levels) return this._levels;
     return new Promise((resolve, reject) => {
@@ -28,11 +35,32 @@ export class ResCache {
     return this._levels?.[String(idx)] || null;
   }
 
-  /** path without extension, under resources: img/xxx or ui/xxx */
+  /** Block Reveal：按需加载 Lv_XXXX.txt */
+  static async loadBrLevel(idx: number): Promise<LevelConfig | null> {
+    if (this._brLevels.has(idx)) return this._brLevels.get(idx)!;
+    const name = `levels_br/Lv_${String(idx).padStart(4, '0')}`;
+    return new Promise((resolve) => {
+      resources.load(name, TextAsset, (err, asset) => {
+        if (err || !asset) {
+          resolve(null);
+          return;
+        }
+        try {
+          const cfg = LevelParser.parse(asset.text);
+          this._brLevels.set(idx, cfg);
+          resolve(cfg);
+        } catch (e) {
+          console.error('parse level failed', idx, e);
+          resolve(null);
+        }
+      });
+    });
+  }
+
+  /** path without extension, under resources */
   static loadSprite(path: string): Promise<SpriteFrame | null> {
     if (this._sf[path]) return Promise.resolve(this._sf[path]);
     return new Promise((resolve) => {
-      // Prefer spriteFrame sub-asset
       resources.load(`${path}/spriteFrame`, SpriteFrame, (err, sf) => {
         if (!err && sf) {
           this._sf[path] = sf;
@@ -64,4 +92,5 @@ export class ResCache {
 
   static img(name: string) { return this.loadSprite(`img/${name}`); }
   static ui(name: string) { return this.loadSprite(`ui/${name}`); }
+  static uiBr(name: string) { return this.loadSprite(`ui_br/${name}`); }
 }

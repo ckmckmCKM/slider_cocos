@@ -1,33 +1,37 @@
-# 超级滑块大师 - Cocos Creator 3.8.8 2D 复刻
+# Block Reveal — Cocos Creator 1:1 复刻
+
+基于 Unity 原版 **Block Reveal: Slide & Match**（`com.halagames.blockreveal`）的 Cocos Creator 3.8.8 复刻。
 
 ## 打开方式
 
 1. 启动 **Cocos Creator 3.8.8**
-2. 打开项目目录：`D:\aaa\superdashi\slider_cocos`
-3. 打开场景 `assets/scenes/Main.scene`
-4. 选中 **Canvas** 节点，添加组件 `GameApp`（脚本在 `assets/scripts/game/GameApp.ts`）
-5. 菜单 **项目 → 项目设置 → 功能裁剪** 保持 2D 即可
-6. 将 `Main` 设为启动场景后点击预览
+2. 打开本项目，等待 `assets/resources/pictures`、`ui_br`、`levels_br` 导入完成（首次较慢）
+3. 打开 `assets/scenes/Main.scene`，Canvas 挂载 `GameApp`
+4. 预览运行
 
-首次打开会自动为 png/m4a/json 生成 `.meta`，可能需要等待资源导入完成。
+## 已迁移
 
-## 已迁移内容
+| 内容 | 路径 |
+|------|------|
+| 650 关明文 | `assets/resources/levels_br/Lv_XXXX.txt` |
+| 揭图资源 ~581 | `assets/resources/pictures/**` |
+| UI / 道具 / 机关图标 ~401 | `assets/resources/ui_br/**` |
+| 关卡解析器 | `assets/scripts/blocky/LevelParser.ts` |
+| 核心棋盘（逐图揭示） | `assets/scripts/blocky/BoardController.ts` |
 
-- 大厅（开始游戏 / 选择关卡）
-- 选关列表（进度解锁）
-- 2D 棋盘：拖拽滑动、碰撞、拼合自动消除
-- 道具：沙漏 / 锤子 / 磁铁
-- 冰块 / 钥匙 / 锁链（简化）
-- 107 关数据（`assets/resources/levels/all.json`）
-- 原版贴图与音效（`assets/resources/img|ui|audio`）
+## 已实现玩法
 
-## 目录
+- 20×20 棋盘、Polyomino 拖拽滑动、碰撞
+- **逐图拼合揭示**（`idPanelPicture` + `listIndexPicture`）
+- 方块机制：冰 / 锁+钥匙 / 钉住 / 方向箭 / 炸弹倒计时 / 合并拖动 / 神秘层（简化）
+- 环境：冰墙计数；传送门/隧道/粉碎机等 **先占位可视化**
+- 道具：Freeze / Magnet / Slicer / Teleport
+- 失败续关（+60 秒 / 拆弹）
 
-```
-assets/
-  scenes/Main.scene
-  scripts/game/GameApp.ts          # 入口：大厅/选关/对局 UI
-  scripts/game/BoardController.ts  # 核心玩法
-  scripts/utils/                   # 常量、资源、音效、UI 工具
-  resources/img|ui|audio|levels/
-```
+## 待对齐（环境机关完整逻辑）
+
+Portal 传送、Tunnel 吐块、Grinder / RollerDoor / Rotator / WoodenBox / ColorPath 强制路径、生命与商店等 F2P。
+
+## 验收建议关卡
+
+`1 → 10 → 21 → 50 → 93(炸弹) → 172(传送门) → 301(隧道) → 489 → 601`

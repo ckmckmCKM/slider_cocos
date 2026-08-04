@@ -1,0 +1,134 @@
+{
+  "ver": "1.0.27",
+  "importer": "image",
+  "imported": true,
+  "uuid": "e4ce8a61-5c97-42d7-ba28-1f9ccaf6bb85",
+  "files": [
+    ".json",
+    ".png"
+  ],
+  "subMetas": {
+    "6c48a": {
+      "importer": "texture",
+      "uuid": "e4ce8a61-5c97-42d7-ba28-1f9ccaf6bb85@6c48a",
+      "displayName": "cup world cup",
+      "id": "6c48a",
+      "name": "texture",
+      "userData": {
+        "wrapModeS": "clamp-to-edge",
+        "wrapModeT": "clamp-to-edge",
+        "imageUuidOrDatabaseUri": "e4ce8a61-5c97-42d7-ba28-1f9ccaf6bb85",
+        "isUuid": true,
+        "visible": false,
+        "minfilter": "linear",
+        "magfilter": "linear",
+        "mipfilter": "none",
+        "anisotropy": 0
+      },
+      "ver": "1.0.22",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    },
+    "f9941": {
+      "importer": "sprite-frame",
+      "uuid": "e4ce8a61-5c97-42d7-ba28-1f9ccaf6bb85@f9941",
+      "displayName": "cup world cup",
+      "id": "f9941",
+      "name": "spriteFrame",
+      "userData": {
+        "trimThreshold": 1,
+        "rotated": false,
+        "offsetX": -1,
+        "offsetY": 0,
+        "trimX": 18,
+        "trimY": 6,
+        "width": 162,
+        "height": 288,
+        "rawWidth": 200,
+        "rawHeight": 300,
+        "borderTop": 0,
+        "borderBottom": 0,
+        "borderLeft": 0,
+        "borderRight": 0,
+        "packable": true,
+        "pixelsToUnit": 100,
+        "pivotX": 0.5,
+        "pivotY": 0.5,
+        "meshType": 0,
+        "vertices": {
+          "rawPosition": [
+            -81,
+            -144,
+            0,
+            81,
+            -144,
+            0,
+            -81,
+            144,
+            0,
+            81,
+            144,
+            0
+          ],
+          "indexes": [
+            0,
+            1,
+            2,
+            2,
+            1,
+            3
+          ],
+          "uv": [
+            18,
+            294,
+            180,
+            294,
+            18,
+            6,
+            180,
+            6
+          ],
+          "nuv": [
+            0.09,
+            0.02,
+            0.9,
+            0.02,
+            0.09,
+            0.98,
+            0.9,
+            0.98
+          ],
+          "minPos": [
+            -81,
+            -144,
+            0
+          ],
+          "maxPos": [
+            81,
+            144,
+            0
+          ]
+        },
+        "isUuid": true,
+        "imageUuidOrDatabaseUri": "e4ce8a61-5c97-42d7-ba28-1f9ccaf6bb85@6c48a",
+        "atlasUuid": "",
+        "trimType": "auto"
+      },
+      "ver": "1.0.12",
+      "imported": true,
+      "files": [
+        ".json"
+      ],
+      "subMetas": {}
+    }
+  },
+  "userData": {
+    "type": "sprite-frame",
+    "fixAlphaTransparencyArtifacts": false,
+    "hasAlpha": true,
+    "redirect": "e4ce8a61-5c97-42d7-ba28-1f9ccaf6bb85@6c48a"
+  }
+}

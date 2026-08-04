@@ -55,4 +55,5 @@ export const DESIGN_H = 1334;
 export const BOARD_MAX_W = 680;
 export const BOARD_MAX_H = 780;
 export const EPS = 0.02;
-export const PROGRESS_KEY = 'slider_master_max';
+export const PROGRESS_KEY = 'block_reveal_max';
+export const MAX_LEVEL = 650;
