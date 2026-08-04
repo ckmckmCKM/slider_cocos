@@ -1,0 +1,27 @@
+{
+  "manual_call_templates": [
+    {
+      "name": "cocos",
+      "call_template_type": "mcp",
+      "config": {
+        "mcpServers": {
+          "creator": {
+            "transport": "http",
+            "url": "http://127.0.0.1:3100/mcp",
+            "timeout": 120,
+            "sse_read_timeout": 300,
+            "terminate_on_close": false
+          }
+        }
+      },
+      "register_resources_as_tools": false
+    }
+  ],
+  "post_processing": [],
+  "tool_repository": {
+    "tool_repository_type": "in_memory"
+  },
+  "tool_search_strategy": {
+    "tool_search_strategy_type": "tag_and_description_word_match"
+  }
+}

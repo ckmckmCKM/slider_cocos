@@ -8,5 +8,6 @@
       "fitHeight": true
     },
     "startScene": "f0e1d2c3-b4a5-4678-9012-3456789abcde"
-  }
+  },
+  "custom_joint_texture_layouts": []
 }

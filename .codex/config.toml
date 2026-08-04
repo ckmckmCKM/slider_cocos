@@ -1,0 +1,17 @@
+# Project-scoped MCP configuration for Codex.
+# Restart Codex after changing MCP servers.
+
+[mcp_servers.code-mode]
+command = "npx"
+args = ["@utcp/code-mode-mcp"]
+startup_timeout_sec = 30
+
+[mcp_servers.code-mode.env]
+UTCP_CONFIG_FILE = "D:/cca/slider_cocos/.utcp_config.json"
+
+[mcp_servers.cocos-creator]
+url = "http://127.0.0.1:3100/mcp"
+startup_timeout_sec = 10
+tool_timeout_sec = 120
+enabled = true
+default_tools_approval_mode = "approve"
