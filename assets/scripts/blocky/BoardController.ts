@@ -7,13 +7,20 @@ import { ResCache } from '../utils/ResCache';
 import { SoundMgr } from '../utils/SoundMgr';
 import { addLabel, makeNode, setSprite } from '../utils/UIFactory';
 import { ArrowDirection, MechanicType, TypeEnvironment, colorHex, hasMechanic } from './Enums';
+import {
+  ColorPathRuntime, GrinderRuntime, RollerRuntime, RotatorRuntime, TunnelRuntime, WoodenBoxRuntime,
+  colorFlagBits, grinderCells, rotateCellCW, rotatorArmCells,
+  spawnColorPathVisual, spawnGrinderVisual, spawnRoller, spawnRotator, spawnTunnelVisual, spawnWoodenBox,
+} from './EnvHelpers';
 import { pictureResourcePath } from './LevelParser';
-import { LevelConfig, PictureData, PortalData, ShapePictureData, TunnelData, Vec2I, WallIceData } from './LevelTypes';
+import { LevelConfig, PictureData, PortalData, ShapePictureData, Vec2I } from './LevelTypes';
 
 export interface Piece {
   id: number;
   node: Node;
   cells: Vec2I[];
+  /** 开局 listPos，隧道弹出落点 */
+  spawnCells: Vec2I[];
   picIndices: number[];
   idPanelPicture: number;
   color: number;
@@ -27,12 +34,20 @@ export interface Piece {
   mystery: number;
   idCombineds: number[];
   idLayered: number;
+  /** ColorBlock 剩余绳颜色 flags */
+  colorBlock: number;
   alive: boolean;
-  /** 是否带图可参与拼合 */
   matchable: boolean;
+  /** 藏在隧道队列中 */
+  inTunnel: boolean;
+  /** 双层：被压在下层，尚未解锁 */
+  hiddenUnder: boolean;
+  /** 被木箱/卷帘门困住 */
+  contained: boolean;
   iceLabel?: Label | null;
   lockLabel?: Label | null;
   bombLabel?: Label | null;
+  ropeLabel?: Label | null;
 }
 
 export interface BoardCallbacks {
@@ -51,6 +66,7 @@ interface WallIceRuntime {
   label: Label;
 }
 
+
 export class BoardController {
   root: Node;
   pieces: Piece[] = [];
@@ -59,7 +75,12 @@ export class BoardController {
   completedPics = new Set<number>();
   wallIce: WallIceRuntime[] = [];
   portals: PortalData[] = [];
-  tunnels: { data: TunnelData; queue: number[] }[] = [];
+  tunnels: TunnelRuntime[] = [];
+  woodenBoxes: WoodenBoxRuntime[] = [];
+  grinders: GrinderRuntime[] = [];
+  rollers: RollerRuntime[] = [];
+  rotators: RotatorRuntime[] = [];
+  colorPaths: ColorPathRuntime[] = [];
   board: TypeEnvironment[][] = [];
   levelIndex = 1;
   timeLeft = 0;
@@ -78,11 +99,13 @@ export class BoardController {
     oy: number;
     moved: boolean;
   } | null = null;
+  private lastMoveDelta = { x: 0, y: 0 };
   private origin = new Vec3(0, 0, 0);
   private playMin = { x: 0, y: 0 };
   private playMax = { x: 0, y: 0 };
   private cb: BoardCallbacks;
   private teleportFirst: Piece | null = null;
+  private picMap = new Map<number, PictureData>();
 
   constructor(root: Node, cb: BoardCallbacks) {
     this.root = root;
@@ -102,13 +125,20 @@ export class BoardController {
     this.wallIce = [];
     this.portals = [];
     this.tunnels = [];
+    this.woodenBoxes = [];
+    this.grinders = [];
+    this.rollers = [];
+    this.rotators = [];
+    this.colorPaths = [];
     this.pictures = [];
     this.completedPics.clear();
     this.drag = null;
     this.teleportFirst = null;
     this.board = [];
     this.loseReason = null;
+    this.picMap.clear();
   }
+
 
   async startLevel(idx: number, lvl: LevelConfig) {
     this.clear();
@@ -118,9 +148,15 @@ export class BoardController {
     this.activeTool = null;
     this.frozenTimer = 0;
     this.timeLeft = lvl.timeLimit || 180;
-    this.pictures = lvl.listPictureData.slice();
-    this.board = lvl.board;
-    await this.buildBoard(lvl);
+    // 深拷贝，避免 ensureGround 改写缓存
+    const level = JSON.parse(JSON.stringify(lvl)) as LevelConfig;
+    this.pictures = level.listPictureData.slice();
+    this.picMap = new Map(level.listPictureData.map((p) => [p.id, p]));
+    this.board = level.board;
+    await this.buildBoard(level);
+    this.applyLayeredHidden();
+    this.applyContainedFlags();
+    this.tryThrowTunnels();
     this.checkAllPictures();
     this.cb.onHud();
     this.cb.onGoals();
@@ -190,8 +226,32 @@ export class BoardController {
   // ─── build ───────────────────────────────────────────
 
   private async buildBoard(lvl: LevelConfig) {
-    const ground = this.collectGround(lvl.board);
+    const origGround = this.collectGround(lvl.board);
+    const ground = origGround.map((c) => ({ ...c }));
+    for (const s of lvl.listShapePictureData) {
+      for (const p of s.listPos) {
+        if (!ground.some((g) => g.x === p.x && g.y === p.y)) ground.push({ x: p.x, y: p.y });
+        this.ensureGround(p.x, p.y);
+      }
+    }
     if (!ground.length) return;
+
+    // 原始 Ground 为实心矩形时，把块越界后的包围盒也补实（修 Lv2 board 少一行）
+    // 双岛关不补，避免填缝
+    if (this.isSolidRect(origGround)) {
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const c of ground) {
+        minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x);
+        minY = Math.min(minY, c.y); maxY = Math.max(maxY, c.y);
+      }
+      for (let y = minY; y <= maxY; y++) {
+        for (let x = minX; x <= maxX; x++) {
+          if (!ground.some((g) => g.x === x && g.y === y)) ground.push({ x, y });
+          this.ensureGround(x, y);
+        }
+      }
+    }
+
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const c of ground) {
       minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x);
@@ -218,7 +278,11 @@ export class BoardController {
     tg.fill();
     this.decor.push(tray);
 
+    const seen = new Set<string>();
     for (const c of ground) {
+      const k = `${c.x},${c.y}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
       const cell = makeNode('cell', this.root, C * 0.92, C * 0.92);
       cell.setPosition(this.gridToLocal(c.x, c.y));
       const g = cell.addComponent(Graphics);
@@ -229,48 +293,55 @@ export class BoardController {
     }
 
     // color paths
+    this.colorPaths = [];
     for (const cp of lvl.listColorPathData) {
-      const n = makeNode('cpath', this.root, C * 0.7, C * 0.7);
-      n.setPosition(this.gridToLocal(cp.pos.x, cp.pos.y));
-      const g = n.addComponent(Graphics);
-      const col = colorFromHex(colorHex(cp.color));
-      col.a = 90;
-      g.fillColor = col;
-      g.roundRect(-C * 0.35, -C * 0.35, C * 0.7, C * 0.7, 4);
-      g.fill();
-      this.decor.push(n);
+      this.colorPaths.push(spawnColorPathVisual(this.root, cp, (x, y) => this.gridToLocal(x, y), C, this.decor));
     }
 
     // wall ice
     for (const w of lvl.listWallIceData) {
-      await this.spawnWallIce(w);
+      await this.spawnWallIce(w.pos, w.num);
     }
 
-    // portals / grinders / tunnels / roller / rotator
     this.portals = lvl.listPortalData.slice();
     for (const p of lvl.listPortalData) {
       this.spawnMarker(p.pos, colorHex(p.color), 'P');
     }
+
+    this.grinders = [];
     for (const g of lvl.listGrinderData) {
-      this.spawnMarker(g.pos, '#ef5350', 'G');
-    }
-    this.tunnels = lvl.listTunnelData.map((t) => ({ data: t, queue: t.listIdBlock.slice() }));
-    for (const t of lvl.listTunnelData) {
-      this.spawnMarker(t.pos, '#8d6e63', 'T');
-    }
-    for (const r of lvl.listRollerDoorData) {
-      this.spawnMarker(r.pos, '#78909c', 'R');
-    }
-    for (const r of lvl.listRotatorData) {
-      this.spawnMarker(r.pos, '#26a69a', 'O');
-    }
-    for (const b of lvl.listWoodenBoxData) {
-      this.spawnMarker(b.pos, '#a1887f', 'W');
+      this.grinders.push(spawnGrinderVisual(this.root, g, (x, y) => this.gridToLocal(x, y), C, this.decor));
     }
 
-    const picMap = new Map(lvl.listPictureData.map((p) => [p.id, p]));
+    this.tunnels = [];
+    const tunnelIds = new Set<number>();
+    for (const t of lvl.listTunnelData) {
+      const rt = spawnTunnelVisual(this.root, t, (x, y) => this.gridToLocal(x, y), C, this.decor);
+      this.tunnels.push(rt);
+      for (const id of t.listIdBlock) tunnelIds.add(id);
+    }
+
+    this.rollers = [];
+    for (const r of lvl.listRollerDoorData) {
+      this.rollers.push(spawnRoller(this.root, r, (x, y) => this.gridToLocal(x, y), C, this.decor));
+    }
+
+    this.rotators = [];
+    for (const r of lvl.listRotatorData) {
+      this.rotators.push(spawnRotator(this.root, r, (x, y) => this.gridToLocal(x, y), C, this.decor));
+    }
+
+    this.woodenBoxes = [];
+    for (const b of lvl.listWoodenBoxData) {
+      this.woodenBoxes.push(spawnWoodenBox(this.root, b, (x, y) => this.gridToLocal(x, y), C, this.decor));
+    }
+
     for (const s of lvl.listShapePictureData) {
-      const piece = await this.makePiece(s, picMap.get(s.idPanelPicture) || null);
+      const piece = await this.makePiece(s, this.picMap.get(s.idPanelPicture) || null);
+      if (tunnelIds.has(s.id)) {
+        piece.inTunnel = true;
+        piece.node.active = false;
+      }
       this.pieces.push(piece);
     }
   }
@@ -286,6 +357,34 @@ export class BoardController {
     return out;
   }
 
+  private isSolidRect(cells: Vec2I[]): boolean {
+    if (!cells.length) return false;
+    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+    const set = new Set<string>();
+    for (const c of cells) {
+      minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x);
+      minY = Math.min(minY, c.y); maxY = Math.max(maxY, c.y);
+      set.add(`${c.x},${c.y}`);
+    }
+    const expect = (maxX - minX + 1) * (maxY - minY + 1);
+    if (set.size !== expect) return false;
+    for (let y = minY; y <= maxY; y++) {
+      for (let x = minX; x <= maxX; x++) {
+        if (!set.has(`${x},${y}`)) return false;
+      }
+    }
+    return true;
+  }
+
+  /** 保证 (x,y) 可走；必要时扩展 board 数组 */
+  private ensureGround(x: number, y: number) {
+    if (y < 0 || x < 0) return;
+    while (this.board.length <= y) this.board.push([]);
+    const row = this.board[y];
+    while (row.length <= x) row.push(TypeEnvironment.Block);
+    row[x] = TypeEnvironment.Ground;
+  }
+
   private spawnMarker(pos: Vec2I, hex: string, tag: string) {
     const C = this.cell;
     const n = makeNode(`m_${tag}`, this.root, C * 0.55, C * 0.55);
@@ -298,16 +397,17 @@ export class BoardController {
     this.decor.push(n);
   }
 
-  private async spawnWallIce(w: WallIceData) {
+  private async spawnWallIce(pos: Vec2I, num: number) {
     const C = this.cell;
     const n = makeNode('wallIce', this.root, C * 0.95, C * 0.95);
-    n.setPosition(this.gridToLocal(w.pos.x, w.pos.y));
+    n.setPosition(this.gridToLocal(pos.x, pos.y));
     const g = n.addComponent(Graphics);
     g.fillColor = new Color(180, 220, 255, 200);
     g.roundRect(-C * 0.45, -C * 0.45, C * 0.9, C * 0.9, 6);
     g.fill();
-    const label = addLabel(makeNode('txt', n, C * 0.8, C * 0.5), String(w.num), 22, '#0d47a1');
-    this.wallIce.push({ pos: { ...w.pos }, num: w.num, node: n, label });
+    const label = addLabel(makeNode('txt', n, C * 0.8, C * 0.5), String(num), 22, '#0d47a1');
+    this.wallIce.push({ pos: { ...pos }, num, node: n, label });
+    this.decor.push(n);
   }
 
   private async makePiece(s: ShapePictureData, pic: PictureData | null): Promise<Piece> {
@@ -317,6 +417,7 @@ export class BoardController {
     const hex = s.isObstacle
       ? (hasMechanic(s.mechanic, MechanicType.Stone) ? '#78909c' : hasMechanic(s.mechanic, MechanicType.Wooden) ? '#a67c52' : '#8a4a2a')
       : colorHex(s.color);
+
 
     const xs = cells.map((c) => c.x);
     const ys = cells.map((c) => c.y);
@@ -371,6 +472,7 @@ export class BoardController {
       id: s.id,
       node,
       cells,
+      spawnCells: cells.map((c) => ({ ...c })),
       picIndices: s.listIndexPicture.slice(),
       idPanelPicture: s.idPanelPicture,
       color: s.color,
@@ -384,15 +486,19 @@ export class BoardController {
       mystery: s.numberMystery,
       idCombineds: s.idCombineds.slice(),
       idLayered: s.idLayered,
+      colorBlock: s.colorBlock || 0,
       alive: true,
       matchable,
+      inTunnel: false,
+      hiddenUnder: false,
+      contained: false,
     };
 
     this.applyOverlayIcons(piece, C);
     return piece;
   }
 
-  /** 整块一张图：用 polyomino Mask 裁切，格间无缝 */
+  /** 按实际占用格贴图（非整块包围盒），L/T 等异形才不会「填满缺角」 */
   private placePiecePicture(
     parent: Node,
     sf: SpriteFrame,
@@ -403,43 +509,31 @@ export class BoardController {
     cy: number,
     C: number,
   ) {
-    let refI = -1;
-    for (let i = 0; i < indices.length; i++) {
-      if (indices[i] >= 0) { refI = i; break; }
-    }
-    if (refI < 0) return;
-
     const w = pic.width;
     const h = pic.height;
-    const maskNode = makeNode('picMask', parent, (Math.max(...cells.map((c) => c.x)) - Math.min(...cells.map((c) => c.x)) + 1) * C,
-      (Math.max(...cells.map((c) => c.y)) - Math.min(...cells.map((c) => c.y)) + 1) * C);
-    maskNode.setPosition(0, 0, 0);
-    const mask = maskNode.addComponent(Mask);
-    mask.type = Mask.Type.GRAPHICS_STENCIL;
-    const mg = maskNode.getComponent(Graphics) || maskNode.addComponent(Graphics);
-    mg.clear();
-    const pad = 0.5;
+    // 略重叠消缝；只画有碎片的格
+    const size = C + 1;
     for (let i = 0; i < cells.length; i++) {
-      if (indices[i] < 0) continue;
-      const lx = (cells[i].x - cx) * C;
-      const ly = -(cells[i].y - cy) * C;
-      mg.rect(lx - C / 2 - pad, ly - C / 2 - pad, C + pad * 2, C + pad * 2);
+      const idx = indices[i];
+      if (idx < 0) continue;
+      const c = cells[i];
+      const lx = (c.x - cx) * C;
+      const ly = -(c.y - cy) * C;
+      const col = idx % w;
+      const row = Math.floor(idx / w);
+
+      const maskNode = makeNode(`frag_${i}`, parent, C, C);
+      maskNode.setPosition(lx, ly, 0);
+      const mask = maskNode.addComponent(Mask);
+      mask.type = Mask.Type.GRAPHICS_RECT;
+
+      const img = makeNode('img', maskNode, w * size, h * size);
+      // row0 = 图顶部；Cocos Y 向上
+      const imgX = size * (w / 2 - col - 0.5);
+      const imgY = size * (row + 0.5 - h / 2);
+      img.setPosition(imgX, imgY, 0);
+      setSprite(img, sf);
     }
-    mg.fill();
-
-    const ref = cells[refI];
-    const refIdx = indices[refI];
-    const refCol = refIdx % w;
-    const refRow = Math.floor(refIdx / w);
-    const cellLocalX = (ref.x - cx) * C;
-    const cellLocalY = -(ref.y - cy) * C;
-    // 碎片中心在整图局部坐标（图中心为原点，row0 在上）
-    const fx = (refCol + 0.5 - w / 2) * C;
-    const fy = (h / 2 - refRow - 0.5) * C;
-
-    const img = makeNode('img', maskNode, w * C, h * C);
-    img.setPosition(cellLocalX - fx, cellLocalY - fy, 0);
-    setSprite(img, sf);
   }
 
   private applyOverlayIcons(piece: Piece, C: number) {
@@ -482,6 +576,16 @@ export class BoardController {
       n.setPosition(0, -C * 0.35, 0);
       addLabel(makeNode('txt', n, C * 0.4, C * 0.4), piece.arrow === ArrowDirection.Horizontal ? '↔' : '↕', 20, '#ffffff');
     }
+    if (piece.colorBlock > 0) {
+      const n = makeNode('rope', piece.node, C * 0.7, C * 0.35);
+      n.setPosition(0, C * 0.4, 0);
+      const g = n.addComponent(Graphics);
+      g.fillColor = colorFromHex('#5d4037');
+      g.roundRect(-C * 0.32, -C * 0.14, C * 0.64, C * 0.28, 6);
+      g.fill();
+      const bits = colorFlagBits(piece.colorBlock);
+      piece.ropeLabel = addLabel(makeNode('txt', n, C * 0.6, C * 0.28), `绳×${bits.length}`, 14, '#ffe082');
+    }
   }
 
   private gridToLocal(x: number, y: number): Vec3 {
@@ -512,6 +616,10 @@ export class BoardController {
     const ui = e.getUILocation();
     const ut = this.root.getComponent(UITransform)!;
     const local = ut.convertToNodeSpaceAR(new Vec3(ui.x, ui.y, 0));
+
+    // 旋转器优先：点中心旋转
+    if (!this.activeTool && this.tryClickRotator(local.x, local.y)) return;
+
     const piece = this.hitTest(local.x, local.y);
     if (!piece) return;
 
@@ -578,13 +686,18 @@ export class BoardController {
   private onUp() {
     if (!this.drag) return;
     const { group, startCells, moved } = this.drag;
-    // snap
     for (const p of group) {
       p.cells = p.cells.map((c) => ({ x: Math.round(c.x), y: Math.round(c.y) }));
       this.syncPieceNode(p);
     }
     const changed = moved && group.some((p, i) =>
       p.cells.some((c, j) => c.x !== startCells[i][j].x || c.y !== startCells[i][j].y));
+    if (changed) {
+      this.lastMoveDelta = {
+        x: group[0].cells[0].x - startCells[0][0].x,
+        y: group[0].cells[0].y - startCells[0][0].y,
+      };
+    }
     this.drag = null;
     if (changed) {
       SoundMgr.play('move1');
@@ -598,34 +711,31 @@ export class BoardController {
     const gy = Math.round(g.y);
     for (let i = this.pieces.length - 1; i >= 0; i--) {
       const p = this.pieces[i];
-      if (!p.alive) continue;
+      if (!p.alive || !p.node.active || p.inTunnel || p.hiddenUnder) continue;
       if (p.cells.some((c) => c.x === gx && c.y === gy)) return p;
     }
     return null;
   }
 
   private canMove(p: Piece): boolean {
-    if (!p.alive) return false;
+    if (!p.alive || p.inTunnel || p.hiddenUnder || p.contained) return false;
     if (p.isObstacle && !hasMechanic(p.mechanic, MechanicType.Wooden) && !hasMechanic(p.mechanic, MechanicType.Stone)) {
-      // pure border obstacle
       if (!p.matchable) return false;
     }
     if (hasMechanic(p.mechanic, MechanicType.Pinned)) return false;
     if (p.ice > 0) return false;
     if (p.lock > 0) return false;
     if (p.mystery > 0) return false;
-    // stone/wood obstacles that are not matchable can still slide in Unity
     if (!p.matchable && p.isObstacle && !hasMechanic(p.mechanic, MechanicType.Wooden) && !hasMechanic(p.mechanic, MechanicType.Stone)) {
       return false;
     }
-    if (!p.matchable && p.isObstacle) return true;
     return true;
   }
 
   private getMoveGroup(p: Piece): Piece[] {
     if (!p.idCombineds.length) return [p];
     const ids = new Set<number>([p.id, ...p.idCombineds]);
-    return this.pieces.filter((x) => x.alive && ids.has(x.id));
+    return this.pieces.filter((x) => x.alive && !x.inTunnel && !x.hiddenUnder && ids.has(x.id));
   }
 
   private tryMoveGroup(group: Piece[], startCells: Vec2I[][], stepX: number, stepY: number): boolean {
@@ -636,9 +746,9 @@ export class BoardController {
     for (let i = 0; i < group.length; i++) {
       for (const c of proposed[i]) {
         if (!this.isWalkable(c.x, c.y)) return false;
-        if (this.wallIce.some((w) => w.num > 0 && w.pos.x === c.x && w.pos.y === c.y)) return false;
+        if (this.isBlockedByEnv(c.x, c.y)) return false;
         for (const other of this.pieces) {
-          if (!other.alive || groupIds.has(other.id)) continue;
+          if (!other.alive || other.inTunnel || other.hiddenUnder || other.contained || groupIds.has(other.id)) continue;
           if (other.cells.some((oc) => oc.x === c.x && oc.y === c.y)) return false;
         }
       }
@@ -654,8 +764,24 @@ export class BoardController {
     return row[x] === TypeEnvironment.Ground;
   }
 
+  private isBlockedByEnv(x: number, y: number): boolean {
+    if (this.wallIce.some((w) => w.num > 0 && w.pos.x === x && w.pos.y === y)) return true;
+    for (const b of this.woodenBoxes) {
+      if (b.count > 0 && b.cells.some((c) => c.x === x && c.y === y)) return true;
+    }
+    for (const r of this.rollers) {
+      if (r.count > 0 && r.cells.some((c) => c.x === x && c.y === y)) return true;
+    }
+    for (const g of this.grinders) {
+      if (grinderCells(g).some((c) => c.x === x && c.y === y)) return true;
+    }
+    return false;
+  }
+
   private onAfterMove() {
     this.tryPortalTeleport();
+    this.tryColorPathForce();
+    this.tryThrowTunnels();
     this.checkAllPictures();
     this.cb.onHud();
     this.cb.onGoals();
@@ -695,10 +821,10 @@ export class BoardController {
       }
     }
     if (any) {
-      // ice/lock/wallIce tick when a picture completes
       this.meltIce(1);
       this.tickWallIce(1);
       this.revealMystery(1);
+      this.tryThrowTunnels();
       this.checkAllPictures();
       if (this.remainingPictures() === 0) {
         this.running = false;
@@ -711,8 +837,9 @@ export class BoardController {
   private isPictureAssembled(pic: PictureData): boolean {
     const cells: { x: number; y: number; idx: number }[] = [];
     for (const p of this.pieces) {
-      if (!p.alive || p.idPanelPicture !== pic.id) continue;
-      if (p.ice > 0 || p.lock > 0 || p.mystery > 0) return false;
+      if (!p.alive || p.inTunnel || p.hiddenUnder || p.contained) continue;
+      if (p.idPanelPicture !== pic.id) continue;
+      if (p.ice > 0 || p.lock > 0 || p.mystery > 0 || p.colorBlock > 0) return false;
       for (let i = 0; i < p.cells.length; i++) {
         const idx = p.picIndices[i];
         if (idx < 0) continue;
@@ -721,7 +848,6 @@ export class BoardController {
     }
     const expected = pic.width * pic.height;
     if (cells.length < expected) return false;
-    // unique indices
     const seen = new Set<number>();
     for (const c of cells) {
       if (seen.has(c.idx)) return false;
@@ -735,9 +861,7 @@ export class BoardController {
     for (const c of cells) {
       const col = c.idx % pic.width;
       const row = Math.floor(c.idx / pic.width);
-      const edx = col - refCol;
-      const edy = row - refRow;
-      if (c.x - ref.x !== edx || c.y - ref.y !== edy) return false;
+      if (c.x - ref.x !== col - refCol || c.y - ref.y !== row - refRow) return false;
     }
     return true;
   }
@@ -745,15 +869,18 @@ export class BoardController {
   private completePicture(pic: PictureData) {
     this.completedPics.add(pic.id);
     SoundMgr.play('match');
-    const members = this.pieces.filter((p) => p.alive && p.idPanelPicture === pic.id && p.matchable);
-    // key unlock
+    const members = this.pieces.filter((p) =>
+      p.alive && !p.inTunnel && !p.hiddenUnder && p.idPanelPicture === pic.id && p.matchable);
     const hadKey = members.some((p) => hasMechanic(p.mechanic, MechanicType.Key));
+    const topIds = members.map((p) => p.id);
     for (const p of members) {
       p.alive = false;
       this.flyOut(p);
     }
     if (hadKey) this.unlockLocks(1);
-    // grinder / roller door counters — decrement on picture complete
+    this.cutColorBlocks(pic.color);
+    this.onPictureCounters();
+    this.breakLayeredTops(topIds);
     this.cb.onPictureComplete?.(pic.id);
   }
 
@@ -811,10 +938,252 @@ export class BoardController {
     }
   }
 
+  // ─── env / layered / colorblock ───────────────────────
+
+  private applyLayeredHidden() {
+    for (const top of this.pieces) {
+      if (top.idLayered < 0) continue;
+      const under = this.pieces.find((p) => p.id === top.idLayered);
+      if (!under) continue;
+      under.hiddenUnder = true;
+      under.node.active = false;
+    }
+  }
+
+  private applyContainedFlags() {
+    for (const p of this.pieces) {
+      if (!p.alive || p.inTunnel || p.hiddenUnder) continue;
+      const inBox = this.woodenBoxes.some((b) =>
+        b.count > 0 && p.cells.some((c) => b.cells.some((bc) => bc.x === c.x && bc.y === c.y)));
+      const inDoor = this.rollers.some((r) =>
+        r.count > 0 && p.cells.some((c) => r.cells.some((rc) => rc.x === c.x && rc.y === c.y)));
+      p.contained = inBox || inDoor;
+      if (p.contained) p.node.active = false;
+    }
+  }
+
+  private breakLayeredTops(topIds: number[]) {
+    for (const topId of topIds) {
+      const top = this.pieces.find((p) => p.id === topId);
+      if (!top || top.idLayered < 0) continue;
+      const under = this.pieces.find((p) => p.id === top.idLayered);
+      if (!under || !under.hiddenUnder) continue;
+      under.hiddenUnder = false;
+      under.node.active = true;
+      // 同格叠放：继承 top 最后位置
+      const samePos = under.spawnCells.length === top.spawnCells.length
+        && under.spawnCells.every((c, i) => c.x === top.spawnCells[i].x && c.y === top.spawnCells[i].y);
+      if (samePos) {
+        under.cells = top.cells.map((c) => ({ ...c }));
+      } else {
+        under.cells = under.spawnCells.map((c) => ({ ...c }));
+      }
+      this.syncPieceNode(under);
+      SoundMgr.play('click');
+    }
+  }
+
+  private cutColorBlocks(picColor: number) {
+    if (!picColor) return;
+    for (const p of this.pieces) {
+      if (!p.alive || p.colorBlock <= 0) continue;
+      const cut = p.colorBlock & picColor;
+      if (!cut) continue;
+      p.colorBlock &= ~picColor;
+      const bits = colorFlagBits(p.colorBlock);
+      if (p.ropeLabel) p.ropeLabel.string = bits.length ? `绳×${bits.length}` : '';
+      if (p.colorBlock <= 0) {
+        const rope = p.node.getChildByName('rope');
+        if (rope) rope.destroy();
+        p.ropeLabel = null;
+        SoundMgr.play('match');
+      }
+    }
+  }
+
+  private onPictureCounters() {
+    // wooden boxes
+    for (const b of this.woodenBoxes) {
+      if (b.count <= 0) continue;
+      b.count--;
+      b.label.string = String(b.count);
+      if (b.count <= 0) {
+        b.node.destroy();
+        this.releaseContainedIn(b.cells);
+      }
+    }
+    this.woodenBoxes = this.woodenBoxes.filter((b) => b.count > 0);
+
+    // rollers
+    for (const r of this.rollers) {
+      if (r.count <= 0) continue;
+      r.count--;
+      r.label.string = String(r.count);
+      if (r.count <= 0) {
+        r.node.destroy();
+        this.releaseContainedIn(r.cells);
+      }
+    }
+    this.rollers = this.rollers.filter((r) => r.count > 0);
+
+    // grinders：每向 -1
+    for (const g of this.grinders) {
+      if (g.up > 0) g.up--;
+      if (g.down > 0) g.down--;
+      if (g.left > 0) g.left--;
+      if (g.right > 0) g.right--;
+      const total = g.up + g.down + g.left + g.right;
+      g.label.string = String(total);
+      if (total <= 0) {
+        g.node.destroy();
+      } else {
+        // 刷新视觉：简单更新数字即可，颚缩短靠 isBlockedByEnv 读当前值
+      }
+    }
+    this.grinders = this.grinders.filter((g) => g.up + g.down + g.left + g.right > 0);
+  }
+
+  private releaseContainedIn(cells: Vec2I[]) {
+    for (const p of this.pieces) {
+      if (!p.alive || !p.contained) continue;
+      const hit = p.cells.some((c) => cells.some((bc) => bc.x === c.x && bc.y === c.y))
+        || p.spawnCells.some((c) => cells.some((bc) => bc.x === c.x && bc.y === c.y));
+      if (!hit) continue;
+      // 仍被其它容器困住则不释放
+      const still = this.woodenBoxes.some((b) => b.count > 0 && p.spawnCells.some((c) => b.cells.some((bc) => bc.x === c.x && bc.y === c.y)))
+        || this.rollers.some((r) => r.count > 0 && p.spawnCells.some((c) => r.cells.some((rc) => rc.x === c.x && rc.y === c.y)));
+      if (still) continue;
+      p.contained = false;
+      p.cells = p.spawnCells.map((c) => ({ ...c }));
+      p.node.active = true;
+      this.syncPieceNode(p);
+    }
+  }
+
+  private tryThrowTunnels() {
+    for (const t of this.tunnels) {
+      if (!t.queue.length) continue;
+      const id = t.queue[0];
+      const piece = this.pieces.find((p) => p.id === id && p.inTunnel);
+      if (!piece) { t.queue.shift(); continue; }
+
+      // listPos = 弹出落点
+      const proposed = piece.spawnCells.map((c) => ({ ...c }));
+      if (!this.canPlaceCells(proposed, piece.id)) continue;
+
+      t.queue.shift();
+      piece.inTunnel = false;
+      piece.cells = proposed;
+      piece.node.active = true;
+      this.syncPieceNode(piece);
+      t.label.string = String(t.queue.length);
+      if (!t.queue.length) {
+        t.node.destroy();
+      }
+      SoundMgr.play('click');
+      return; // 每次只吐一块
+    }
+    this.tunnels = this.tunnels.filter((t) => t.queue.length > 0 && t.node.isValid);
+  }
+
+  private canPlaceCells(cells: Vec2I[], selfId: number): boolean {
+    for (const c of cells) {
+      if (!this.isWalkable(c.x, c.y)) return false;
+      if (this.isBlockedByEnv(c.x, c.y)) return false;
+      for (const other of this.pieces) {
+        if (!other.alive || other.inTunnel || other.hiddenUnder || other.contained || other.id === selfId) continue;
+        if (other.cells.some((oc) => oc.x === c.x && oc.y === c.y)) return false;
+      }
+    }
+    return true;
+  }
+
+  /** 同色色轨：沿上次移动方向 Continuously 滑行 */
+  private tryColorPathForce() {
+    const dx = Math.sign(this.lastMoveDelta.x);
+    const dy = Math.sign(this.lastMoveDelta.y);
+    if (dx === 0 && dy === 0) return;
+    for (const p of this.pieces) {
+      if (!p.alive || !p.node.active || p.inTunnel || p.hiddenUnder || p.contained) continue;
+      if (!this.pieceOnMatchingPath(p)) continue;
+      // 沿方向连续滑动，直到下一格不能走或不再压色轨
+      let guard = 20;
+      while (guard-- > 0) {
+        if (!this.pieceOnMatchingPath(p)) break;
+        const start = [p.cells.map((c) => ({ ...c }))];
+        if (!this.tryMoveGroup([p], start, dx, dy)) break;
+        this.syncPieceNode(p);
+      }
+    }
+  }
+
+  private pieceOnMatchingPath(p: Piece): boolean {
+    return p.cells.some((c) =>
+      this.colorPaths.some((cp) => cp.pos.x === c.x && cp.pos.y === c.y && (p.color & cp.color) !== 0));
+  }
+
+  private tryClickRotator(lx: number, ly: number): boolean {
+    const g = this.localToGrid(lx, ly);
+    const gx = Math.round(g.x);
+    const gy = Math.round(g.y);
+    for (const rot of this.rotators) {
+      if (rot.pos.x !== gx || rot.pos.y !== gy) continue;
+      if (rot.rotating) return true;
+      this.doRotate(rot);
+      return true;
+    }
+    return false;
+  }
+
+  private doRotate(rot: RotatorRuntime) {
+    const arm = new Set(rotatorArmCells(rot).map((c) => `${c.x},${c.y}`));
+    const affected = this.pieces.filter((p) =>
+      p.alive && !p.inTunnel && !p.hiddenUnder && !p.contained
+      && p.cells.some((c) => arm.has(`${c.x},${c.y}`)));
+
+    const nextCells = affected.map((p) => p.cells.map((c) => rotateCellCW(c, rot.pos)));
+    // 校验
+    for (let i = 0; i < affected.length; i++) {
+      for (const c of nextCells[i]) {
+        if (!this.isWalkable(c.x, c.y)) {
+          this.cb.onToast('无法旋转');
+          return;
+        }
+        if (this.isBlockedByEnv(c.x, c.y) && !arm.has(`${c.x},${c.y}`)) {
+          // 旋入臂外障碍
+          this.cb.onToast('无法旋转');
+          return;
+        }
+      }
+    }
+    // 互相重叠？
+    const occupied = new Map<string, number>();
+    for (let i = 0; i < affected.length; i++) {
+      for (const c of nextCells[i]) {
+        const k = `${c.x},${c.y}`;
+        if (occupied.has(k)) { this.cb.onToast('无法旋转'); return; }
+        occupied.set(k, affected[i].id);
+      }
+    }
+    for (const other of this.pieces) {
+      if (!other.alive || other.inTunnel || other.hiddenUnder || affected.includes(other)) continue;
+      for (const c of other.cells) {
+        if (occupied.has(`${c.x},${c.y}`)) { this.cb.onToast('无法旋转'); return; }
+      }
+    }
+
+    for (let i = 0; i < affected.length; i++) {
+      affected[i].cells = nextCells[i];
+      this.syncPieceNode(affected[i]);
+    }
+    SoundMgr.play('click');
+    this.onAfterMove();
+  }
+
   private tickBombs(dt: number) {
     if (this.frozenTimer > 0) return;
     for (const p of this.pieces) {
-      if (!p.alive || p.timeBomb <= 0) continue;
+      if (!p.alive || p.timeBomb <= 0 || p.inTunnel || p.hiddenUnder) continue;
       p.bombLeft -= dt;
       if (p.bombLabel) p.bombLabel.string = String(Math.max(0, Math.ceil(p.bombLeft)));
       if (p.bombLeft <= 0) {
@@ -848,7 +1217,7 @@ export class BoardController {
       this.activeTool = null;
       this.onAfterMove();
     } else if (kind === 'magnet') {
-      if (!piece.matchable || piece.ice > 0 || piece.lock > 0) {
+      if (!piece.matchable || piece.ice > 0 || piece.lock > 0 || piece.colorBlock > 0 || piece.contained) {
         this.cb.onToast('无法使用磁铁');
         return;
       }
@@ -856,12 +1225,19 @@ export class BoardController {
       SoundMgr.play('magnet');
       const picId = piece.idPanelPicture;
       const targets = this.pieces.filter((p) =>
-        p.alive && p.idPanelPicture === picId && p.matchable && p.ice <= 0 && p.lock <= 0);
+        p.alive && !p.inTunnel && !p.hiddenUnder && !p.contained
+        && p.idPanelPicture === picId && p.matchable && p.ice <= 0 && p.lock <= 0 && p.colorBlock <= 0);
+      const topIds = targets.map((p) => p.id);
       for (const p of targets) { p.alive = false; this.flyOut(p); }
       this.completedPics.add(picId);
+      const pic = this.picMap.get(picId);
+      if (pic) this.cutColorBlocks(pic.color);
+      this.onPictureCounters();
+      this.breakLayeredTops(topIds);
       this.activeTool = null;
       this.meltIce(1);
       this.tickWallIce(1);
+      this.tryThrowTunnels();
       this.cb.onHud();
       this.cb.onGoals();
       if (this.remainingPictures() === 0) {
