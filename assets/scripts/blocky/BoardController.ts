@@ -103,6 +103,8 @@ export class BoardController {
   private origin = new Vec3(0, 0, 0);
   private playMin = { x: 0, y: 0 };
   private playMax = { x: 0, y: 0 };
+  /** 可玩区 grid 中心，用于 Y 轴映射（Unity：y 越大越靠上） */
+  private playCenter = { x: 0, y: 0 };
   private cb: BoardCallbacks;
   private teleportFirst: Piece | null = null;
   private picMap = new Map<number, PictureData>();
@@ -256,7 +258,8 @@ export class BoardController {
     const C = this.cell;
     const cxm = (minX + maxX) / 2;
     const cym = (minY + maxY) / 2;
-    this.origin.set(-cxm * C, cym * C, 0);
+    this.playCenter = { x: cxm, y: cym };
+    this.origin.set(-cxm * C, 0, 0);
 
     const tray = makeNode('tray', this.root, (bw + 0.7) * C, (bh + 0.7) * C);
     const tg = tray.addComponent(Graphics);
@@ -407,7 +410,7 @@ export class BoardController {
     body.fillColor = colorFromHex(hex);
     for (const c of cells) {
       const lx = (c.x - cx) * C;
-      const ly = -(c.y - cy) * C;
+      const ly = (c.y - cy) * C;
       body.rect(lx - C / 2 - pad, ly - C / 2 - pad, C + pad * 2, C + pad * 2);
     }
     body.fill();
@@ -416,7 +419,7 @@ export class BoardController {
     body.lineWidth = 3;
     for (const c of cells) {
       const lx = (c.x - cx) * C;
-      const ly = -(c.y - cy) * C;
+      const ly = (c.y - cy) * C;
       const neighbors = {
         l: cells.some((o) => o.x === c.x - 1 && o.y === c.y),
         r: cells.some((o) => o.x === c.x + 1 && o.y === c.y),
@@ -486,9 +489,13 @@ export class BoardController {
       if (idx < 0) continue;
       const c = cells[i];
       const lx = (c.x - cx) * C;
-      const ly = -(c.y - cy) * C;
+      const ly = (c.y - cy) * C;
       const col = idx % w;
       const row = Math.floor(idx / w);
+      // Unity：grid y 增大 = 图片 row 增大；屏幕 y 向上 = row 向上
+      // 纹理 row0 在图顶部，需映射 texRow = h-1-row（isFlipY 时再反一次）
+      const texRow = pic.isFlipY ? row : (h - 1 - row);
+      const texCol = pic.isFlipX ? (w - 1 - col) : col;
 
       const maskNode = makeNode(`frag_${i}`, parent, C, C);
       maskNode.setPosition(lx, ly, 0);
@@ -496,9 +503,8 @@ export class BoardController {
       mask.type = Mask.Type.GRAPHICS_RECT;
 
       const img = makeNode('img', maskNode, w * size, h * size);
-      // row0 = 图顶部；Cocos Y 向上
-      const imgX = size * (w / 2 - col - 0.5);
-      const imgY = size * (row + 0.5 - h / 2);
+      const imgX = size * (w / 2 - texCol - 0.5);
+      const imgY = size * (texRow + 0.5 - h / 2);
       img.setPosition(imgX, imgY, 0);
       setSprite(img, sf);
     }
@@ -558,14 +564,18 @@ export class BoardController {
 
   private gridToLocal(x: number, y: number): Vec3 {
     const C = this.cell;
-    return new Vec3(this.origin.x + x * C, this.origin.y - y * C, 0);
+    return new Vec3(
+      this.origin.x + x * C,
+      (y - this.playCenter.y) * C,
+      0,
+    );
   }
 
   private localToGrid(lx: number, ly: number): { x: number; y: number } {
     const C = this.cell;
     return {
       x: (lx - this.origin.x) / C,
-      y: (this.origin.y - ly) / C,
+      y: ly / C + this.playCenter.y,
     };
   }
 
@@ -623,7 +633,7 @@ export class BoardController {
     if (arrow === ArrowDirection.Vertical) dx = 0;
 
     const stepX = Math.round(dx / C);
-    const stepY = Math.round(-dy / C);
+    const stepY = Math.round(dy / C);
     if (stepX === 0 && stepY === 0) {
       // soft follow
       for (let i = 0; i < this.drag.group.length; i++) {

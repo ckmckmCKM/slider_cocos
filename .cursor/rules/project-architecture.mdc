@@ -1,0 +1,32 @@
+---
+description: Block Reveal 工程架构与开发约定；开始任务前先读 docs/ARCHITECTURE.md
+alwaysApply: true
+---
+
+# Block Reveal — 项目上下文
+
+开发、修 bug、加功能前，**先阅读** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) 与 [`AGENTS.md`](AGENTS.md)。
+
+## 核心路径
+
+- 入口 UI：`assets/scripts/game/GameApp.ts`
+- 棋盘（当前）：`assets/scripts/blocky/BoardController.ts`
+- 关卡解析：`assets/scripts/blocky/LevelParser.ts`
+- 关卡文件：`assets/resources/levels_br/Lv_XXXX.txt`（650 关）
+- 校验：`node tools/validate-levels.mjs 1 100`
+
+## 必读陷阱
+
+1. **Board 列优先**：`;` = X 列，`:` = Y；Parser 输出 `board[y][x]`。勿按行解析。
+2. **勿改** `assets/scripts/game/BoardController.ts`（旧版废弃）。
+3. `startLevel` 必须 **deep copy** LevelConfig，因 `ensureGround` 会改 board。
+4. Ground 托盘 = Ground 掩码 + 方块 `listPos`；**不要**实心包围盒整盘填充。
+5. 胜利 = 所有 `PictureData` 拼合揭示，不是同色消除。
+6. `clear()` 中 `wallIce` 已在 `decor` 里，勿重复 destroy。
+
+## 代码风格
+
+- 最小 diff，匹配现有 TypeScript / 纯代码 UI（`UIFactory`）风格。
+- 新机关：`LevelTypes` → `LevelParser` → `EnvHelpers` → `BoardController`。
+- 枚举与 Unity 数值保持一致：`assets/scripts/blocky/Enums.ts`。
+- **Map/Set 转数组**：用 `Array.from(map.values())`，**不要**用 `[...map.values()]`（同理 `entries()` / `keys()` 也用 `Array.from`）。

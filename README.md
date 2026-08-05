@@ -9,6 +9,8 @@
 3. 打开 `assets/scenes/Main.scene`，Canvas 挂载 `GameApp`
 4. 预览运行
 
+**工程架构（供智能体 / 新开发者阅读）：** [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md)
+
 ## 已迁移
 
 | 内容 | 路径 |
