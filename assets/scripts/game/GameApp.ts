@@ -1,6 +1,6 @@
 import {
   _decorator, Component, Node, Label, Graphics, Color, sys, UITransform,
-  view, ResolutionPolicy,
+  view, ResolutionPolicy, tween, Vec3, UIOpacity,
 } from 'cc';
 import { BoardController } from '../blocky/BoardController';
 import { DESIGN_H, DESIGN_W, MAX_LEVEL, PROGRESS_KEY } from '../utils/Constants';
@@ -29,6 +29,8 @@ export class GameApp extends Component {
   private toast!: Label;
   private toastNode!: Node;
   private winOverlay!: Node;
+  private winPanel!: Node;
+  private winConfettiRoot!: Node;
   private loseOverlay!: Node;
   private keepOverlay!: Node;
   private winText!: Label;
@@ -266,21 +268,54 @@ export class GameApp extends Component {
     this.toast = addLabel(makeNode('txt', this.toastNode, 340, 48), '', 24, '#ffe9c4');
 
     this.winOverlay = makeOverlay(root, 'win');
+    this.winOverlay.getComponent(Graphics)!.fillColor = new Color(0, 0, 0, 170);
+    this.winConfettiRoot = makeNode('confetti', this.winOverlay, DESIGN_W, DESIGN_H);
+    fullWidget(this.winConfettiRoot);
+    this.winPanel = makeNode('panel', this.winOverlay, 520, 420);
     {
-      const h1 = makeNode('h1', this.winOverlay, 400, 50);
-      h1.setPosition(0, 140, 0);
-      addLabel(h1, '关卡完成！', 42, '#ffe9c4');
-      const h2 = makeNode('h2', this.winOverlay, 400, 40);
-      h2.setPosition(0, 70, 0);
-      this.winText = addLabel(h2, '', 24, '#ffd84d');
-      makeButton(this.winOverlay, 'home', 240, 64, '返回主页', () => {
+      const panelBg = this.winPanel.addComponent(Graphics);
+      panelBg.fillColor = new Color(255, 255, 255, 18);
+      panelBg.roundRect(-260, -210, 520, 420, 24);
+      panelBg.fill();
+
+      const h1 = makeNode('h1', this.winPanel, 460, 70);
+      h1.setPosition(0, 130, 0);
+      const h1Label = addLabel(h1, 'Well Done!', 52, '#4fc3f7');
+      h1Label.enableOutline = true;
+      h1Label.outlineColor = colorFromHex('#ffd54f');
+      h1Label.outlineWidth = 4;
+
+      const h2 = makeNode('h2', this.winPanel, 400, 40);
+      h2.setPosition(0, 50, 0);
+      this.winText = addLabel(h2, '', 26, '#ffffff');
+
+      const feat = makeNode('feat', this.winPanel, 320, 120);
+      feat.setPosition(0, -30, 0);
+      const fg = feat.addComponent(Graphics);
+      fg.fillColor = new Color(0, 0, 0, 140);
+      fg.roundRect(-160, -60, 320, 120, 16);
+      fg.fill();
+      fg.strokeColor = new Color(255, 255, 255, 80);
+      fg.lineWidth = 2;
+      fg.roundRect(-160, -60, 320, 120, 16);
+      fg.stroke();
+      const t1n = makeNode('t1', feat, 280, 30);
+      t1n.setPosition(0, 28, 0);
+      addLabel(t1n, '关卡完成', 24, '#ffffff');
+      const t2n = makeNode('t2', feat, 280, 28);
+      t2n.setPosition(0, -18, 0);
+      addLabel(t2n, '继续挑战下一关吧', 20, '#e0e0e0');
+
+      makeButton(this.winPanel, 'next', 280, 72, '下一关 ▶', () => {
         SoundMgr.play('click');
-        this.showLobby();
-      }).setPosition(0, -20, 0);
-      makeButton(this.winOverlay, 'next', 240, 64, '下一关', () => {
-        SoundMgr.play('click');
+        this.winOverlay.active = false;
         this.enterGame(this.board.levelIndex + 1);
-      }).setPosition(0, -100, 0);
+      }).setPosition(0, -130, 0);
+      makeButton(this.winPanel, 'home', 200, 56, '返回主页', () => {
+        SoundMgr.play('click');
+        this.winOverlay.active = false;
+        this.showLobby();
+      }).setPosition(0, -210, 0);
     }
 
     this.loseOverlay = makeOverlay(root, 'lose');
@@ -457,8 +492,46 @@ export class GameApp extends Component {
   private onWin() {
     SoundMgr.play('win');
     this.saveProgress(this.board.levelIndex + 1);
-    this.winText.string = `第${this.board.levelIndex}关完成！`;
+    this.winText.string = `第 ${this.board.levelIndex} 关完成！`;
     this.winOverlay.active = true;
+    this.winOverlay.setSiblingIndex(this.game.children.length - 1);
+    this.winPanel.setScale(0.35, 0.35, 1);
+    const op = this.winPanel.getComponent(UIOpacity) || this.winPanel.addComponent(UIOpacity);
+    op.opacity = 0;
+    tween(this.winPanel)
+      .parallel(
+        tween().to(0.42, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' }),
+        tween(op).to(0.25, { opacity: 255 }),
+      )
+      .start();
+    this.spawnWinConfetti();
+  }
+
+  private spawnWinConfetti() {
+    for (const c of this.winConfettiRoot.children) c.destroy();
+    const colors = ['#e53935', '#43a047', '#1e88e5', '#fdd835', '#8e24aa', '#fb8c00'];
+    for (let i = 0; i < 28; i++) {
+      const n = makeNode(`c${i}`, this.winConfettiRoot, 8, 24);
+      const x = (Math.random() - 0.5) * DESIGN_W * 0.9;
+      const y = DESIGN_H / 2 + 40 + Math.random() * 80;
+      n.setPosition(x, y, 0);
+      n.angle = Math.random() * 360;
+      const g = n.addComponent(Graphics);
+      g.fillColor = colorFromHex(colors[i % colors.length]);
+      g.rect(-4, -12, 8, 24);
+      g.fill();
+      const op = n.addComponent(UIOpacity);
+      op.opacity = 230;
+      const dur = 1.2 + Math.random() * 0.8;
+      tween(n)
+        .parallel(
+          tween().to(dur, { position: new Vec3(x + (Math.random() - 0.5) * 120, -DESIGN_H / 2 - 80, 0) }),
+          tween().by(dur, { angle: 180 + Math.random() * 360 }),
+          tween(op).delay(dur * 0.55).to(dur * 0.45, { opacity: 0 }),
+        )
+        .call(() => { if (n.isValid) n.destroy(); })
+        .start();
+    }
   }
 
   private onLose(reason: 'time' | 'bomb') {

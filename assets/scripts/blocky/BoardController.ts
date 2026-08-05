@@ -98,6 +98,11 @@ export class BoardController {
     ox: number;
     oy: number;
     moved: boolean;
+    highlights: Node[];
+    trails: Node[];
+    touchRing: Node | null;
+    baseScales: Vec3[];
+    lastBlockAt: number;
   } | null = null;
   private lastMoveDelta = { x: 0, y: 0 };
   private origin = new Vec3(0, 0, 0);
@@ -606,8 +611,20 @@ export class BoardController {
       return;
     }
 
-    if (!this.canMove(piece)) return;
+    if (!this.canMove(piece)) {
+      this.playTapReject(piece);
+      return;
+    }
     const group = this.getMoveGroup(piece);
+    const highlights: Node[] = [];
+    const baseScales: Vec3[] = [];
+    for (const p of group) {
+      p.node.setSiblingIndex(this.root.children.length - 1);
+      baseScales.push(p.node.scale.clone());
+      tween(p.node).to(0.07, { scale: new Vec3(p.node.scale.x * 1.04, p.node.scale.y * 1.04, 1) }).start();
+      highlights.push(this.addDragHighlight(p));
+    }
+    const touchRing = this.createTouchRing(local.x, local.y);
     this.drag = {
       piece,
       group,
@@ -615,8 +632,12 @@ export class BoardController {
       ox: local.x,
       oy: local.y,
       moved: false,
+      highlights,
+      trails: [],
+      touchRing,
+      baseScales,
+      lastBlockAt: 0,
     };
-    for (const p of group) p.node.setSiblingIndex(this.root.children.length - 1);
   }
 
   private onMove(e: EventTouch) {
@@ -632,41 +653,93 @@ export class BoardController {
     if (arrow === ArrowDirection.Horizontal) dy = 0;
     if (arrow === ArrowDirection.Vertical) dx = 0;
 
-    const stepX = Math.round(dx / C);
-    const stepY = Math.round(dy / C);
-    if (stepX === 0 && stepY === 0) {
-      // soft follow
-      for (let i = 0; i < this.drag.group.length; i++) {
-        const p = this.drag.group[i];
-        const start = this.drag.startCells[i];
-        const xs = start.map((c) => c.x);
-        const ys = start.map((c) => c.y);
-        const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-        const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-        const base = this.gridToLocal(cx, cy);
-        p.node.setPosition(base.x + dx, base.y + dy, 0);
+    const anchor = this.drag.startCells;
+    let targetX = Math.round(dx / C);
+    let targetY = Math.round(dy / C);
+    const maxPX = this.maxMoveStepsFrom(this.drag.group, anchor, 1, 0);
+    const maxNX = this.maxMoveStepsFrom(this.drag.group, anchor, -1, 0);
+    const maxPY = this.maxMoveStepsFrom(this.drag.group, anchor, 0, 1);
+    const maxNY = this.maxMoveStepsFrom(this.drag.group, anchor, 0, -1);
+    targetX = Math.max(-maxNX, Math.min(maxPX, targetX));
+    targetY = Math.max(-maxNY, Math.min(maxPY, targetY));
+
+    let { x: curX, y: curY } = this.stepFromAnchor(this.drag.group, anchor);
+    while (curX < targetX) {
+      const snap = this.drag.group.map((p) => p.cells.map((c) => ({ ...c })));
+      const trailCells = this.drag.group.map((p) => p.cells.map((c) => ({ ...c })));
+      if (!this.tryMoveGroup(this.drag.group, snap, 1, 0)) {
+        this.playBlockFeedback(this.drag.group, 1, 0);
+        break;
       }
-      return;
+      this.spawnGroupTrail(this.drag.group, trailCells);
+      curX++;
+      this.drag.moved = true;
+    }
+    while (curX > targetX) {
+      const snap = this.drag.group.map((p) => p.cells.map((c) => ({ ...c })));
+      const trailCells = this.drag.group.map((p) => p.cells.map((c) => ({ ...c })));
+      if (!this.tryMoveGroup(this.drag.group, snap, -1, 0)) {
+        this.playBlockFeedback(this.drag.group, -1, 0);
+        break;
+      }
+      this.spawnGroupTrail(this.drag.group, trailCells);
+      curX--;
+      this.drag.moved = true;
+    }
+    while (curY < targetY) {
+      const snap = this.drag.group.map((p) => p.cells.map((c) => ({ ...c })));
+      const trailCells = this.drag.group.map((p) => p.cells.map((c) => ({ ...c })));
+      if (!this.tryMoveGroup(this.drag.group, snap, 0, 1)) {
+        this.playBlockFeedback(this.drag.group, 0, 1);
+        break;
+      }
+      this.spawnGroupTrail(this.drag.group, trailCells);
+      curY++;
+      this.drag.moved = true;
+    }
+    while (curY > targetY) {
+      const snap = this.drag.group.map((p) => p.cells.map((c) => ({ ...c })));
+      const trailCells = this.drag.group.map((p) => p.cells.map((c) => ({ ...c })));
+      if (!this.tryMoveGroup(this.drag.group, snap, 0, -1)) {
+        this.playBlockFeedback(this.drag.group, 0, -1);
+        break;
+      }
+      this.spawnGroupTrail(this.drag.group, trailCells);
+      curY--;
+      this.drag.moved = true;
     }
 
-    this.drag.moved = true;
-    if (this.tryMoveGroup(this.drag.group, this.drag.startCells, stepX, stepY)) {
-      for (const p of this.drag.group) this.syncPieceNode(p);
-    } else {
-      // revert soft
-      for (let i = 0; i < this.drag.group.length; i++) {
-        this.drag.group[i].cells = this.drag.startCells[i].map((c) => ({ ...c }));
-        this.syncPieceNode(this.drag.group[i]);
-      }
+    let remX = dx - curX * C;
+    let remY = dy - curY * C;
+    if (curX >= maxPX && remX > 0) remX = Math.min(remX, C * 0.14);
+    if (curX <= -maxNX && remX < 0) remX = Math.max(remX, -C * 0.14);
+    if (curY >= maxPY && remY > 0) remY = Math.min(remY, C * 0.14);
+    if (curY <= -maxNY && remY < 0) remY = Math.max(remY, -C * 0.14);
+    remX = Math.max(-C, Math.min(C, remX));
+    remY = Math.max(-C, Math.min(C, remY));
+    this.applyGroupVisualOffset(this.drag.group, remX, remY);
+    if (this.drag.touchRing?.isValid) {
+      this.drag.touchRing.setPosition(local.x, local.y, 0);
+      this.drag.touchRing.setSiblingIndex(this.root.children.length - 1);
     }
   }
 
   private onUp() {
     if (!this.drag) return;
-    const { group, startCells, moved } = this.drag;
-    for (const p of group) {
+    const { group, startCells, moved, baseScales, piece } = this.drag;
+    this.clearDragChrome(this.drag);
+    for (let i = 0; i < group.length; i++) {
+      const p = group[i];
       p.cells = p.cells.map((c) => ({ x: Math.round(c.x), y: Math.round(c.y) }));
-      this.syncPieceNode(p);
+      const xs = p.cells.map((c) => c.x);
+      const ys = p.cells.map((c) => c.y);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const target = this.gridToLocal(cx, cy);
+      const base = baseScales[i] || p.node.scale.clone();
+      tween(p.node)
+        .to(0.1, { position: target, scale: base }, { easing: 'quadOut' })
+        .start();
     }
     const changed = moved && group.some((p, i) =>
       p.cells.some((c, j) => c.x !== startCells[i][j].x || c.y !== startCells[i][j].y));
@@ -675,12 +748,188 @@ export class BoardController {
         x: group[0].cells[0].x - startCells[0][0].x,
         y: group[0].cells[0].y - startCells[0][0].y,
       };
+    } else if (!moved) {
+      this.playTapReject(piece);
     }
     this.drag = null;
     if (changed) {
-      SoundMgr.play('move1');
+      SoundMgr.playMove(this.moveMaterial(piece));
       this.onAfterMove();
     }
+  }
+
+  private stepFromAnchor(group: Piece[], anchor: Vec2I[][]): { x: number; y: number } {
+    const ac = anchor[0][0];
+    const cc = group[0].cells[0];
+    return { x: cc.x - ac.x, y: cc.y - ac.y };
+  }
+
+  private maxMoveStepsFrom(group: Piece[], anchor: Vec2I[][], dirX: number, dirY: number): number {
+    const groupIds = new Set(group.map((p) => p.id));
+    let steps = 0;
+    let test = anchor.map((cells) => cells.map((c) => ({ ...c })));
+    for (let i = 0; i < 24; i++) {
+      const proposed = test.map((cells) => cells.map((c) => ({ x: c.x + dirX, y: c.y + dirY })));
+      if (!this.canPlaceGroupAt(group, proposed, groupIds)) break;
+      test = proposed;
+      steps++;
+    }
+    return steps;
+  }
+
+  private applyGroupVisualOffset(group: Piece[], ox: number, oy: number) {
+    for (const p of group) {
+      this.syncPieceNode(p);
+      const pos = p.node.position;
+      p.node.setPosition(pos.x + ox, pos.y + oy, 0);
+    }
+  }
+
+  private spawnGroupTrail(group: Piece[], cellsBefore: Vec2I[][]) {
+    if (!this.drag) return;
+    for (let i = 0; i < group.length; i++) {
+      const trail = this.spawnPieceTrail(group[i], cellsBefore[i]);
+      if (trail) this.drag.trails.push(trail);
+    }
+  }
+
+  private addDragHighlight(piece: Piece): Node {
+    const C = this.cell;
+    const xs = piece.cells.map((c) => c.x);
+    const ys = piece.cells.map((c) => c.y);
+    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+    const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+    const ut = piece.node.getComponent(UITransform)!;
+    const hl = makeNode('dragHL', piece.node, ut.contentSize.width, ut.contentSize.height);
+    const g = hl.addComponent(Graphics);
+    g.strokeColor = new Color(255, 255, 255, 255);
+    g.lineWidth = 5;
+    for (const c of piece.cells) {
+      const lx = (c.x - cx) * C;
+      const ly = (c.y - cy) * C;
+      g.roundRect(lx - C / 2 + 1, ly - C / 2 + 1, C - 2, C - 2, 10);
+    }
+    g.stroke();
+    return hl;
+  }
+
+  private spawnPieceTrail(piece: Piece, cells: Vec2I[]): Node | null {
+    if (!cells.length) return null;
+    const C = this.cell;
+    const xs = cells.map((c) => c.x);
+    const ys = cells.map((c) => c.y);
+    const minX = Math.min(...xs);
+    const maxX = Math.max(...xs);
+    const minY = Math.min(...ys);
+    const maxY = Math.max(...ys);
+    const cx = (minX + maxX) / 2;
+    const cy = (minY + maxY) / 2;
+    const pw = (maxX - minX + 1) * C;
+    const ph = (maxY - minY + 1) * C;
+    const hex = piece.matchable ? colorHex(piece.color) : '#8a4a2a';
+
+    const trail = makeNode('dragTrail', this.root, pw, ph);
+    trail.setPosition(this.gridToLocal(cx, cy));
+    const g = trail.addComponent(Graphics);
+    const fill = colorFromHex(hex);
+    fill.a = 110;
+    g.fillColor = fill;
+    for (const c of cells) {
+      const lx = (c.x - cx) * C;
+      const ly = (c.y - cy) * C;
+      g.roundRect(lx - C / 2 + 3, ly - C / 2 + 3, C - 6, C - 6, 10);
+    }
+    g.fill();
+    const stroke = colorFromHex(hex);
+    stroke.a = 220;
+    g.strokeColor = stroke;
+    g.lineWidth = 4;
+    for (const c of cells) {
+      const lx = (c.x - cx) * C;
+      const ly = (c.y - cy) * C;
+      g.roundRect(lx - C / 2 + 3, ly - C / 2 + 3, C - 6, C - 6, 10);
+    }
+    g.stroke();
+
+    const op = trail.addComponent(UIOpacity);
+    op.opacity = 210;
+    tween(op)
+      .to(0.45, { opacity: 0 }, { easing: 'quadOut' })
+      .call(() => { if (trail.isValid) trail.destroy(); })
+      .start();
+    return trail;
+  }
+
+  private createTouchRing(x: number, y: number): Node {
+    const n = makeNode('touchRing', this.root, 48, 48);
+    n.setPosition(x, y, 0);
+    const g = n.addComponent(Graphics);
+    g.fillColor = new Color(255, 255, 255, 90);
+    g.circle(0, 0, 16);
+    g.fill();
+    g.strokeColor = new Color(255, 255, 255, 200);
+    g.lineWidth = 3;
+    g.circle(0, 0, 20);
+    g.stroke();
+    return n;
+  }
+
+  private clearDragChrome(d: { highlights: Node[]; touchRing: Node | null }) {
+    for (const h of d.highlights) if (h.isValid) h.destroy();
+    if (d.touchRing?.isValid) d.touchRing.destroy();
+  }
+
+  private spawnTapBurst(x: number, y: number) {
+    const colors = ['#fff9c4', '#ffe082', '#ffffff', '#c8e6c9'];
+    for (let i = 0; i < 6; i++) {
+      const n = makeNode('tapBurst', this.root, 12, 12);
+      n.setPosition(x, y, 0);
+      const g = n.addComponent(Graphics);
+      g.fillColor = colorFromHex(colors[i % colors.length]);
+      g.circle(0, 0, 5);
+      g.fill();
+      const op = n.addComponent(UIOpacity);
+      op.opacity = 220;
+      const ang = (Math.PI * 2 * i) / 6;
+      const dist = this.cell * 0.35;
+      tween(n)
+        .parallel(
+          tween().to(0.22, { position: new Vec3(x + Math.cos(ang) * dist, y + Math.sin(ang) * dist, 0) }),
+          tween(op).to(0.22, { opacity: 0 }),
+        )
+        .call(() => { if (n.isValid) n.destroy(); })
+        .start();
+    }
+  }
+
+  private playTapReject(piece: Piece) {
+    const n = piece.node;
+    const s = n.scale.x;
+    tween(n)
+      .to(0.05, { scale: new Vec3(s * 0.94, s * 0.94, 1) })
+      .to(0.08, { scale: new Vec3(s, s, 1) }, { easing: 'backOut' })
+      .start();
+  }
+
+  private playBlockFeedback(group: Piece[], dirX: number, dirY: number) {
+    const now = Date.now();
+    if (this.drag && now - this.drag.lastBlockAt < 120) return;
+    if (this.drag) this.drag.lastBlockAt = now;
+    const bx = dirX !== 0 ? dirX * 5 : 0;
+    const by = dirY !== 0 ? dirY * 5 : 0;
+    for (const p of group) {
+      const pos = p.node.position.clone();
+      tween(p.node)
+        .to(0.04, { position: new Vec3(pos.x + bx, pos.y + by, 0) })
+        .to(0.05, { position: pos }, { easing: 'quadOut' })
+        .start();
+    }
+  }
+
+  private moveMaterial(piece: Piece): string {
+    if (hasMechanic(piece.mechanic, MechanicType.Wooden)) return 'Wood';
+    if (hasMechanic(piece.mechanic, MechanicType.Stone)) return 'Stone';
+    return '';
   }
 
   private hitTest(lx: number, ly: number): Piece | null {
@@ -716,11 +965,7 @@ export class BoardController {
     return this.pieces.filter((x) => x.alive && !x.inTunnel && !x.hiddenUnder && ids.has(x.id));
   }
 
-  private tryMoveGroup(group: Piece[], startCells: Vec2I[][], stepX: number, stepY: number): boolean {
-    const proposed: Vec2I[][] = startCells.map((cells) =>
-      cells.map((c) => ({ x: c.x + stepX, y: c.y + stepY })),
-    );
-    const groupIds = new Set(group.map((p) => p.id));
+  private canPlaceGroupAt(group: Piece[], proposed: Vec2I[][], groupIds: Set<number>): boolean {
     for (let i = 0; i < group.length; i++) {
       for (const c of proposed[i]) {
         if (!this.isWalkable(c.x, c.y)) return false;
@@ -731,6 +976,15 @@ export class BoardController {
         }
       }
     }
+    return true;
+  }
+
+  private tryMoveGroup(group: Piece[], startCells: Vec2I[][], stepX: number, stepY: number): boolean {
+    const proposed: Vec2I[][] = startCells.map((cells) =>
+      cells.map((c) => ({ x: c.x + stepX, y: c.y + stepY })),
+    );
+    const groupIds = new Set(group.map((p) => p.id));
+    if (!this.canPlaceGroupAt(group, proposed, groupIds)) return false;
     for (let i = 0; i < group.length; i++) group[i].cells = proposed[i];
     return true;
   }
@@ -849,6 +1103,13 @@ export class BoardController {
     SoundMgr.play('match');
     const members = this.pieces.filter((p) =>
       p.alive && !p.inTunnel && !p.hiddenUnder && p.idPanelPicture === pic.id && p.matchable);
+    if (members.length) {
+      const xs = members.flatMap((p) => p.cells.map((c) => c.x));
+      const ys = members.flatMap((p) => p.cells.map((c) => c.y));
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      this.spawnMatchBurst(cx, cy);
+    }
     const hadKey = members.some((p) => hasMechanic(p.mechanic, MechanicType.Key));
     const topIds = members.map((p) => p.id);
     for (const p of members) {
@@ -860,6 +1121,33 @@ export class BoardController {
     this.onPictureCounters();
     this.breakLayeredTops(topIds);
     this.cb.onPictureComplete?.(pic.id);
+  }
+
+  private spawnMatchBurst(gx: number, gy: number) {
+    const center = this.gridToLocal(gx, gy);
+    const colors = ['#fff59d', '#ffffff', '#ffeb3b', '#c8e6c9', '#e1bee7'];
+    for (let i = 0; i < 10; i++) {
+      const n = makeNode('matchBurst', this.root, 16, 16);
+      n.setPosition(center.x, center.y, 0);
+      n.setSiblingIndex(this.root.children.length - 1);
+      const g = n.addComponent(Graphics);
+      g.fillColor = colorFromHex(colors[i % colors.length]);
+      const r = 4 + (i % 3) * 2;
+      g.circle(0, 0, r);
+      g.fill();
+      const op = n.addComponent(UIOpacity);
+      op.opacity = 240;
+      const ang = (Math.PI * 2 * i) / 10 + Math.random() * 0.4;
+      const dist = this.cell * (0.45 + Math.random() * 0.55);
+      tween(n)
+        .parallel(
+          tween().to(0.32, { position: new Vec3(center.x + Math.cos(ang) * dist, center.y + Math.sin(ang) * dist, 0) }),
+          tween(op).to(0.32, { opacity: 0 }),
+          tween().to(0.32, { scale: new Vec3(0.2, 0.2, 1) }),
+        )
+        .call(() => { if (n.isValid) n.destroy(); })
+        .start();
+    }
   }
 
   private flyOut(p: Piece) {
