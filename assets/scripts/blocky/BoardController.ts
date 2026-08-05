@@ -1,5 +1,5 @@
 import {
-  Color, EventTouch, Graphics, Label, Mask, Node, SpriteFrame, UIOpacity, UITransform, Vec3, tween,
+  Color, EventTouch, Graphics, Label, Mask, Node, SpriteFrame, Tween, UIOpacity, UITransform, Vec3, tween,
 } from 'cc';
 import { BOARD_MAX_H, BOARD_MAX_W, CELL } from '../utils/Constants';
 import { colorFromHex, shadeHex } from '../utils/Helpers';
@@ -94,6 +94,7 @@ export class BoardController {
   private drag: {
     piece: Piece;
     group: Piece[];
+    picGroup: Piece[];
     startCells: Vec2I[][];
     ox: number;
     oy: number;
@@ -101,7 +102,6 @@ export class BoardController {
     highlights: Node[];
     trails: Node[];
     touchRing: Node | null;
-    baseScales: Vec3[];
     lastBlockAt: number;
   } | null = null;
   private lastMoveDelta = { x: 0, y: 0 };
@@ -615,18 +615,24 @@ export class BoardController {
       return;
     }
     const group = this.getMoveGroup(piece);
-    const highlights: Node[] = [];
-    const baseScales: Vec3[] = [];
+    const picGroup = this.getPictureGroup(piece);
     for (const p of group) {
       p.node.setSiblingIndex(this.root.children.length - 1);
-      baseScales.push(p.node.scale.clone());
-      tween(p.node).to(0.07, { scale: new Vec3(p.node.scale.x * 1.04, p.node.scale.y * 1.04, 1) }).start();
-      highlights.push(this.addDragHighlight(p));
+      Tween.stopAllByTarget(p.node);
+      p.node.setScale(1, 1, 1);
+      tween(p.node).to(0.07, { scale: new Vec3(1.04, 1.04, 1) }).start();
     }
+    // 同图碎片一起抬到上层，描边盖住整张图的外轮廓
+    for (const p of picGroup) {
+      if (group.indexOf(p) >= 0) continue;
+      p.node.setSiblingIndex(Math.max(0, this.root.children.length - 1 - group.length));
+    }
+    const highlights = this.addPictureHighlights(picGroup);
     const touchRing = this.createTouchRing(local.x, local.y);
     this.drag = {
       piece,
       group,
+      picGroup,
       startCells: group.map((p) => p.cells.map((c) => ({ ...c }))),
       ox: local.x,
       oy: local.y,
@@ -634,7 +640,6 @@ export class BoardController {
       highlights,
       trails: [],
       touchRing,
-      baseScales,
       lastBlockAt: 0,
     };
   }
@@ -710,13 +715,23 @@ export class BoardController {
 
     let remX = dx - curX * C;
     let remY = dy - curY * C;
-    if (curX >= maxPX && remX > 0) remX = Math.min(remX, C * 0.14);
-    if (curX <= -maxNX && remX < 0) remX = Math.max(remX, -C * 0.14);
-    if (curY >= maxPY && remY > 0) remY = Math.min(remY, C * 0.14);
-    if (curY <= -maxNY && remY < 0) remY = Math.max(remY, -C * 0.14);
-    remX = Math.max(-C, Math.min(C, remX));
-    remY = Math.max(-C, Math.min(C, remY));
+    // 余量必须按「当前位置下一步是否可走」夹紧，不能用开局轴向 max*：
+    // 先纵后横等路径下，tryMove 已卡住时 maxPX 仍可能很大，rem 会滑进障碍将近一格
+    const groupIds = new Set(this.drag.group.map((p) => p.id));
+    const canStep = (sx: number, sy: number) => {
+      const proposed = this.drag!.group.map((p) =>
+        p.cells.map((c) => ({ x: c.x + sx, y: c.y + sy })));
+      return this.canPlaceGroupAt(this.drag!.group, proposed, groupIds);
+    };
+    const rubber = C * 0.14;
+    if (remX > 0 && !canStep(1, 0)) remX = Math.min(remX, rubber);
+    if (remX < 0 && !canStep(-1, 0)) remX = Math.max(remX, -rubber);
+    if (remY > 0 && !canStep(0, 1)) remY = Math.min(remY, rubber);
+    if (remY < 0 && !canStep(0, -1)) remY = Math.max(remY, -rubber);
+    remX = Math.max(-C * 0.5, Math.min(C * 0.5, remX));
+    remY = Math.max(-C * 0.5, Math.min(C * 0.5, remY));
     this.applyGroupVisualOffset(this.drag.group, remX, remY);
+    this.refreshPictureHighlights();
     if (this.drag.touchRing?.isValid) {
       this.drag.touchRing.setPosition(local.x, local.y, 0);
       this.drag.touchRing.setSiblingIndex(this.root.children.length - 1);
@@ -725,30 +740,36 @@ export class BoardController {
 
   private onUp() {
     if (!this.drag) return;
-    const { group, startCells, moved, baseScales, piece } = this.drag;
+    const { group, startCells, moved, piece } = this.drag;
     this.clearDragChrome(this.drag);
-    for (let i = 0; i < group.length; i++) {
-      const p = group[i];
+    const changed = moved && group.some((p, i) =>
+      p.cells.some((c, j) => c.x !== startCells[i][j].x || c.y !== startCells[i][j].y));
+    for (const p of group) {
       p.cells = p.cells.map((c) => ({ x: Math.round(c.x), y: Math.round(c.y) }));
       const xs = p.cells.map((c) => c.x);
       const ys = p.cells.map((c) => c.y);
       const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
       const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
       const target = this.gridToLocal(cx, cy);
-      const base = baseScales[i] || p.node.scale.clone();
-      tween(p.node)
-        .to(0.1, { position: target, scale: base }, { easing: 'quadOut' })
-        .start();
+      Tween.stopAllByTarget(p.node);
+      p.node.setPosition(target);
+      if (!moved && p === piece) {
+        p.node.setScale(1, 1, 1);
+        tween(p.node)
+          .to(0.05, { scale: new Vec3(0.94, 0.94, 1) })
+          .to(0.08, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
+          .start();
+      } else {
+        tween(p.node)
+          .to(0.1, { scale: new Vec3(1, 1, 1) }, { easing: 'quadOut' })
+          .start();
+      }
     }
-    const changed = moved && group.some((p, i) =>
-      p.cells.some((c, j) => c.x !== startCells[i][j].x || c.y !== startCells[i][j].y));
     if (changed) {
       this.lastMoveDelta = {
         x: group[0].cells[0].x - startCells[0][0].x,
         y: group[0].cells[0].y - startCells[0][0].y,
       };
-    } else if (!moved) {
-      this.playTapReject(piece);
     }
     this.drag = null;
     if (changed) {
@@ -792,24 +813,162 @@ export class BoardController {
     }
   }
 
-  private addDragHighlight(piece: Piece): Node {
-    const C = this.cell;
-    const xs = piece.cells.map((c) => c.x);
-    const ys = piece.cells.map((c) => c.y);
-    const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-    const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-    const ut = piece.node.getComponent(UITransform)!;
-    const hl = makeNode('dragHL', piece.node, ut.contentSize.width, ut.contentSize.height);
-    const g = hl.addComponent(Graphics);
+  private getPictureGroup(p: Piece): Piece[] {
+    if (p.idPanelPicture < 0 || !p.matchable) return [p];
+    return this.pieces.filter((x) =>
+      x.alive && !x.inTunnel && !x.hiddenUnder && !x.contained
+      && x.matchable && x.idPanelPicture === p.idPanelPicture);
+  }
+
+  /** 同图所有碎片外轮廓描边（相邻格共享边不描，拼在一起时成一体） */
+  private addPictureHighlights(picGroup: Piece[]): Node[] {
+    const hl = makeNode('picHL', this.root, 1, 1);
+    this.paintPictureOutline(hl, picGroup);
+    hl.setSiblingIndex(this.root.children.length - 1);
+    return [hl];
+  }
+
+  private refreshPictureHighlights() {
+    if (!this.drag) return;
+    for (const h of this.drag.highlights) if (h.isValid) h.destroy();
+    this.drag.highlights = this.addPictureHighlights(this.drag.picGroup);
+  }
+
+  private pictureOccupied(picGroup: Piece[]): Set<string> {
+    const occupied = new Set<string>();
+    for (const p of picGroup) {
+      for (const c of p.cells) occupied.add(`${Math.round(c.x)},${Math.round(c.y)}`);
+    }
+    return occupied;
+  }
+
+  private paintPictureOutline(node: Node, picGroup: Piece[]) {
+    // 每块用节点真实位置算偏移，描边跟着色块走，避免「贴格子、图已拖走」错位
+    const cellOff = new Map<string, { ox: number; oy: number }>();
+    for (const p of picGroup) {
+      const xs = p.cells.map((c) => c.x);
+      const ys = p.cells.map((c) => c.y);
+      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
+      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
+      const base = this.gridToLocal(cx, cy);
+      const ox = p.node.position.x - base.x;
+      const oy = p.node.position.y - base.y;
+      for (const c of p.cells) cellOff.set(`${Math.round(c.x)},${Math.round(c.y)}`, { ox, oy });
+    }
+
+    const g = node.getComponent(Graphics) || node.addComponent(Graphics);
+    g.clear();
     g.strokeColor = new Color(255, 255, 255, 255);
     g.lineWidth = 5;
-    for (const c of piece.cells) {
-      const lx = (c.x - cx) * C;
-      const ly = (c.y - cy) * C;
-      g.roundRect(lx - C / 2 + 1, ly - C / 2 + 1, C - 2, C - 2, 10);
-    }
+    g.lineJoin = Graphics.LineJoin.ROUND;
+    g.lineCap = Graphics.LineCap.ROUND;
+    this.strokeOccupiedOutline(g, this.pictureOccupied(picGroup), cellOff);
     g.stroke();
-    return hl;
+  }
+
+  /**
+   * 整图占用并集外轮廓：邻边不描；每条边带所属格的视觉偏移。
+   * 顶点多路时取最左转（角点相接不画十字）；偏移变化处补短折线衔接。
+   */
+  private strokeOccupiedOutline(
+    g: Graphics,
+    occupied: Set<string>,
+    cellOff: Map<string, { ox: number; oy: number }>,
+  ) {
+    type Seg = { x0: number; y0: number; x1: number; y1: number; ox: number; oy: number };
+    const segs: Seg[] = [];
+    const byStart = new Map<string, Seg[]>();
+    const ik = (x: number, y: number) => `${x},${y}`;
+    const offAt = (gx: number, gy: number) => cellOff.get(`${gx},${gy}`) || { ox: 0, oy: 0 };
+    const addSeg = (x0: number, y0: number, x1: number, y1: number, ox: number, oy: number) => {
+      const s = { x0, y0, x1, y1, ox, oy };
+      segs.push(s);
+      const k = ik(x0, y0);
+      let arr = byStart.get(k);
+      if (!arr) { arr = []; byStart.set(k, arr); }
+      arr.push(s);
+    };
+
+    for (const key of Array.from(occupied.keys())) {
+      const parts = key.split(',');
+      const gx = Number(parts[0]);
+      const gy = Number(parts[1]);
+      const { ox, oy } = offAt(gx, gy);
+      if (!occupied.has(`${gx},${gy - 1}`)) addSeg(gx, gy, gx + 1, gy, ox, oy);
+      if (!occupied.has(`${gx + 1},${gy}`)) addSeg(gx + 1, gy, gx + 1, gy + 1, ox, oy);
+      if (!occupied.has(`${gx},${gy + 1}`)) addSeg(gx + 1, gy + 1, gx, gy + 1, ox, oy);
+      if (!occupied.has(`${gx - 1},${gy}`)) addSeg(gx, gy + 1, gx, gy, ox, oy);
+    }
+
+    const toLocal = (ix: number, iy: number, ox: number, oy: number) => {
+      const p = this.gridToLocal(ix - 0.5, iy - 0.5);
+      return { x: p.x + ox, y: p.y + oy };
+    };
+
+    const pickNext = (px: number, py: number, qx: number, qy: number, nexts: Seg[]): Seg | null => {
+      const idx = qx - px;
+      const idy = qy - py;
+      let best: Seg | null = null;
+      let bestCross = -Infinity;
+      let bestDot = Infinity;
+      for (const s of nexts) {
+        const odx = s.x1 - s.x0;
+        const ody = s.y1 - s.y0;
+        const cross = idx * ody - idy * odx;
+        const dot = idx * odx + idy * ody;
+        if (cross > bestCross || (cross === bestCross && dot < bestDot)) {
+          bestCross = cross;
+          bestDot = dot;
+          best = s;
+        }
+      }
+      return best;
+    };
+
+    const used = new Set<Seg>();
+    for (const start of segs) {
+      if (used.has(start)) continue;
+      const loop: Seg[] = [start];
+      used.add(start);
+      let px = start.x0;
+      let py = start.y0;
+      let cx = start.x1;
+      let cy = start.y1;
+      let closed = false;
+      for (let guard = 0; guard < segs.length; guard++) {
+        if (cx === start.x0 && cy === start.y0) { closed = true; break; }
+        const nexts = (byStart.get(ik(cx, cy)) || []).filter((s) => !used.has(s));
+        const next = pickNext(px, py, cx, cy, nexts);
+        if (!next) break;
+        used.add(next);
+        loop.push(next);
+        px = cx;
+        py = cy;
+        cx = next.x1;
+        cy = next.y1;
+      }
+      if (!closed || loop.length < 3) continue;
+
+      const wFirst = toLocal(loop[0].x0, loop[0].y0, loop[0].ox, loop[0].oy);
+      g.moveTo(wFirst.x, wFirst.y);
+      let prevOx = loop[0].ox;
+      let prevOy = loop[0].oy;
+      for (const s of loop) {
+        // 相邻边分属拖拽/静止块时偏移不同，先接到本边起点再描，避免斜线贯穿
+        if (s.ox !== prevOx || s.oy !== prevOy) {
+          const wS = toLocal(s.x0, s.y0, s.ox, s.oy);
+          g.lineTo(wS.x, wS.y);
+        }
+        const wE = toLocal(s.x1, s.y1, s.ox, s.oy);
+        g.lineTo(wE.x, wE.y);
+        prevOx = s.ox;
+        prevOy = s.oy;
+      }
+      if (loop[0].ox !== prevOx || loop[0].oy !== prevOy) {
+        g.lineTo(wFirst.x, wFirst.y);
+      }
+      g.close();
+    }
   }
 
   private spawnPieceTrail(piece: Piece, cells: Vec2I[]): Node | null {
@@ -903,10 +1062,11 @@ export class BoardController {
 
   private playTapReject(piece: Piece) {
     const n = piece.node;
-    const s = n.scale.x;
+    Tween.stopAllByTarget(n);
+    n.setScale(1, 1, 1);
     tween(n)
-      .to(0.05, { scale: new Vec3(s * 0.94, s * 0.94, 1) })
-      .to(0.08, { scale: new Vec3(s, s, 1) }, { easing: 'backOut' })
+      .to(0.05, { scale: new Vec3(0.94, 0.94, 1) })
+      .to(0.08, { scale: new Vec3(1, 1, 1) }, { easing: 'backOut' })
       .start();
   }
 
@@ -918,6 +1078,8 @@ export class BoardController {
     const by = dirY !== 0 ? dirY * 5 : 0;
     for (const p of group) {
       const pos = p.node.position.clone();
+      Tween.stopAllByTarget(p.node);
+      // 顶墙回弹不要改 scale，保持当前拖拽放大态
       tween(p.node)
         .to(0.04, { position: new Vec3(pos.x + bx, pos.y + by, 0) })
         .to(0.05, { position: pos }, { easing: 'quadOut' })
