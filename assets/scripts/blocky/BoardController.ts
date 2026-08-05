@@ -148,12 +148,10 @@ export class BoardController {
     this.activeTool = null;
     this.frozenTimer = 0;
     this.timeLeft = lvl.timeLimit || 180;
-    // 深拷贝，避免 ensureGround 改写缓存
-    const level = JSON.parse(JSON.stringify(lvl)) as LevelConfig;
-    this.pictures = level.listPictureData.slice();
-    this.picMap = new Map(level.listPictureData.map((p) => [p.id, p]));
-    this.board = level.board;
-    await this.buildBoard(level);
+    this.pictures = lvl.listPictureData.slice();
+    this.picMap = new Map(lvl.listPictureData.map((p) => [p.id, p]));
+    this.board = lvl.board;
+    await this.buildBoard(lvl);
     this.applyLayeredHidden();
     this.applyContainedFlags();
     this.tryThrowTunnels();
@@ -226,31 +224,8 @@ export class BoardController {
   // ─── build ───────────────────────────────────────────
 
   private async buildBoard(lvl: LevelConfig) {
-    const origGround = this.collectGround(lvl.board);
-    const ground = origGround.map((c) => ({ ...c }));
-    for (const s of lvl.listShapePictureData) {
-      for (const p of s.listPos) {
-        if (!ground.some((g) => g.x === p.x && g.y === p.y)) ground.push({ x: p.x, y: p.y });
-        this.ensureGround(p.x, p.y);
-      }
-    }
+    const ground = this.collectGround(lvl.board);
     if (!ground.length) return;
-
-    // 原始 Ground 为实心矩形时，把块越界后的包围盒也补实（修 Lv2 board 少一行）
-    // 双岛关不补，避免填缝
-    if (this.isSolidRect(origGround)) {
-      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-      for (const c of ground) {
-        minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x);
-        minY = Math.min(minY, c.y); maxY = Math.max(maxY, c.y);
-      }
-      for (let y = minY; y <= maxY; y++) {
-        for (let x = minX; x <= maxX; x++) {
-          if (!ground.some((g) => g.x === x && g.y === y)) ground.push({ x, y });
-          this.ensureGround(x, y);
-        }
-      }
-    }
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
     for (const c of ground) {
@@ -278,11 +253,7 @@ export class BoardController {
     tg.fill();
     this.decor.push(tray);
 
-    const seen = new Set<string>();
     for (const c of ground) {
-      const k = `${c.x},${c.y}`;
-      if (seen.has(k)) continue;
-      seen.add(k);
       const cell = makeNode('cell', this.root, C * 0.92, C * 0.92);
       cell.setPosition(this.gridToLocal(c.x, c.y));
       const g = cell.addComponent(Graphics);
@@ -355,34 +326,6 @@ export class BoardController {
       }
     }
     return out;
-  }
-
-  private isSolidRect(cells: Vec2I[]): boolean {
-    if (!cells.length) return false;
-    let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    const set = new Set<string>();
-    for (const c of cells) {
-      minX = Math.min(minX, c.x); maxX = Math.max(maxX, c.x);
-      minY = Math.min(minY, c.y); maxY = Math.max(maxY, c.y);
-      set.add(`${c.x},${c.y}`);
-    }
-    const expect = (maxX - minX + 1) * (maxY - minY + 1);
-    if (set.size !== expect) return false;
-    for (let y = minY; y <= maxY; y++) {
-      for (let x = minX; x <= maxX; x++) {
-        if (!set.has(`${x},${y}`)) return false;
-      }
-    }
-    return true;
-  }
-
-  /** 保证 (x,y) 可走；必要时扩展 board 数组 */
-  private ensureGround(x: number, y: number) {
-    if (y < 0 || x < 0) return;
-    while (this.board.length <= y) this.board.push([]);
-    const row = this.board[y];
-    while (row.length <= x) row.push(TypeEnvironment.Block);
-    row[x] = TypeEnvironment.Ground;
   }
 
   private spawnMarker(pos: Vec2I, hex: string, tag: string) {

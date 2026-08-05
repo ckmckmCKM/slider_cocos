@@ -55,10 +55,21 @@ function parseHeader(header: string, level: LevelConfig) {
   level.id = toInt(hash[0]);
   level.timeLimit = toInt(hash[1]);
   level.difficulty = toInt(hash[2]) as Difficulty;
-  const rows = hash[3].split(';').filter((r) => r.length > 0);
-  level.board = rows.map((row) =>
-    row.split(':').filter((c) => c.length > 0).map((c) => toInt(c) as TypeEnvironment),
+  // Unity 板数据按列存储：`;` 分隔 X，`:` 分隔该列的 Y；转成 board[y][x]
+  const cols = hash[3].split(';').filter((r) => r.length > 0);
+  const colData = cols.map((col) =>
+    col.split(':').filter((c) => c.length > 0).map((c) => toInt(c) as TypeEnvironment),
   );
+  const width = colData.length;
+  const height = colData.reduce((m, c) => Math.max(m, c.length), 0);
+  level.board = [];
+  for (let y = 0; y < height; y++) {
+    const row: TypeEnvironment[] = [];
+    for (let x = 0; x < width; x++) {
+      row.push(colData[x][y] ?? TypeEnvironment.Block);
+    }
+    level.board.push(row);
+  }
 }
 
 function parsePictures(section: string): PictureData[] {
