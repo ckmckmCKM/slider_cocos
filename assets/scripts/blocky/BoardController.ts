@@ -420,22 +420,21 @@ export class BoardController {
     }
     body.fill();
     // 只描外轮廓：每格描边会显得碎，改为整块描边
+    // 注意：grid y 增大 = 屏幕向上，所以上/下边与邻居判断不能按旧的「屏幕 Y 反了」写法
     body.strokeColor = colorFromHex(shadeHex(hex, 0.55));
     body.lineWidth = 3;
     for (const c of cells) {
       const lx = (c.x - cx) * C;
       const ly = (c.y - cy) * C;
-      const neighbors = {
-        l: cells.some((o) => o.x === c.x - 1 && o.y === c.y),
-        r: cells.some((o) => o.x === c.x + 1 && o.y === c.y),
-        u: cells.some((o) => o.x === c.x && o.y === c.y - 1),
-        d: cells.some((o) => o.x === c.x && o.y === c.y + 1),
-      };
+      const hasL = cells.some((o) => o.x === c.x - 1 && o.y === c.y);
+      const hasR = cells.some((o) => o.x === c.x + 1 && o.y === c.y);
+      const hasBelow = cells.some((o) => o.x === c.x && o.y === c.y - 1);
+      const hasAbove = cells.some((o) => o.x === c.x && o.y === c.y + 1);
       const x0 = lx - C / 2, x1 = lx + C / 2, y0 = ly - C / 2, y1 = ly + C / 2;
-      if (!neighbors.l) { body.moveTo(x0, y0); body.lineTo(x0, y1); }
-      if (!neighbors.r) { body.moveTo(x1, y0); body.lineTo(x1, y1); }
-      if (!neighbors.u) { body.moveTo(x0, y1); body.lineTo(x1, y1); }
-      if (!neighbors.d) { body.moveTo(x0, y0); body.lineTo(x1, y0); }
+      if (!hasL) { body.moveTo(x0, y0); body.lineTo(x0, y1); }
+      if (!hasR) { body.moveTo(x1, y0); body.lineTo(x1, y1); }
+      if (!hasBelow) { body.moveTo(x0, y0); body.lineTo(x1, y0); }
+      if (!hasAbove) { body.moveTo(x0, y1); body.lineTo(x1, y1); }
     }
     body.stroke();
 
