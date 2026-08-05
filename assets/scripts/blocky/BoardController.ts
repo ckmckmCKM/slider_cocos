@@ -1,5 +1,6 @@
 import {
-  Color, EventTouch, Graphics, Label, Mask, Node, SpriteFrame, Tween, UIOpacity, UITransform, Vec3, tween,
+  Color, EventTouch, Graphics, Label, Mask, Node, SpriteFrame, Tween, UIOpacity, UITransform,
+  Vec3, tween,
 } from 'cc';
 import { BOARD_MAX_H, BOARD_MAX_W, CELL } from '../utils/Constants';
 import { colorFromHex, shadeHex } from '../utils/Helpers';
@@ -66,6 +67,11 @@ interface WallIceRuntime {
   label: Label;
 }
 
+interface ShapePoint {
+  x: number;
+  y: number;
+}
+
 
 export class BoardController {
   root: Node;
@@ -104,6 +110,7 @@ export class BoardController {
     touchRing: Node | null;
     lastBlockAt: number;
   } | null = null;
+  private autoCompleting = false;
   private lastMoveDelta = { x: 0, y: 0 };
   private origin = new Vec3(0, 0, 0);
   private playMin = { x: 0, y: 0 };
@@ -143,6 +150,7 @@ export class BoardController {
     this.pictures = [];
     this.completedPics.clear();
     this.drag = null;
+    this.autoCompleting = false;
     this.teleportFirst = null;
     this.board = [];
     this.loseReason = null;
@@ -266,24 +274,73 @@ export class BoardController {
     this.playCenter = { x: cxm, y: cym };
     this.origin.set(-cxm * C, 0, 0);
 
-    const tray = makeNode('tray', this.root, (bw + 0.7) * C, (bh + 0.7) * C);
+    const frameW = (bw + 0.88) * C;
+    const frameH = (bh + 0.88) * C;
+    const innerW = (bw + 0.14) * C;
+    const innerH = (bh + 0.14) * C;
+    const tray = makeNode('tray', this.root, frameW, frameH);
     const tg = tray.addComponent(Graphics);
-    tg.fillColor = colorFromHex('#6b4226');
-    tg.roundRect(-(bw + 0.7) * C / 2, -(bh + 0.7) * C / 2, (bw + 0.7) * C, (bh + 0.7) * C, 16);
+
+    tg.fillColor = new Color(30, 12, 8, 155);
+    tg.roundRect(-frameW / 2, -frameH / 2 - C * 0.07, frameW, frameH, C * 0.24);
     tg.fill();
+
+    tg.fillColor = colorFromHex('#7b4028');
+    tg.roundRect(-frameW / 2, -frameH / 2, frameW, frameH, C * 0.24);
+    tg.fill();
+    tg.strokeColor = colorFromHex('#3a1b12');
+    tg.lineWidth = Math.max(6, C * 0.075);
+    tg.roundRect(-frameW / 2, -frameH / 2, frameW, frameH, C * 0.24);
+    tg.stroke();
+
+    const bevelInset = C * 0.095;
+    tg.strokeColor = colorFromHex('#b96a45');
+    tg.lineWidth = Math.max(3, C * 0.045);
+    tg.roundRect(
+      -frameW / 2 + bevelInset,
+      -frameH / 2 + bevelInset,
+      frameW - bevelInset * 2,
+      frameH - bevelInset * 2,
+      C * 0.18,
+    );
+    tg.stroke();
+
+    tg.fillColor = colorFromHex('#35180f');
+    tg.roundRect(-innerW / 2, -innerH / 2, innerW, innerH, C * 0.1);
+    tg.fill();
+    tg.strokeColor = colorFromHex('#24100b');
+    tg.lineWidth = Math.max(4, C * 0.055);
+    tg.roundRect(-innerW / 2, -innerH / 2, innerW, innerH, C * 0.1);
+    tg.stroke();
     this.decor.push(tray);
 
+    const [cellFace, cellBack] = await Promise.all([
+      ResCache.uiBr('UI_ingame_gach'),
+      ResCache.uiBr('UI_ingame_gach1'),
+    ]);
     const seen = new Set<string>();
     for (const c of ground) {
       const k = `${c.x},${c.y}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      const cell = makeNode('cell', this.root, C * 0.92, C * 0.92);
+      const cell = makeNode('cell', this.root, C * 0.96, C * 0.96);
       cell.setPosition(this.gridToLocal(c.x, c.y));
-      const g = cell.addComponent(Graphics);
-      g.fillColor = colorFromHex('#5a351c');
-      g.roundRect(-C * 0.46, -C * 0.46, C * 0.92, C * 0.92, 6);
-      g.fill();
+      if (cellFace && cellBack) {
+        setSprite(cell, cellBack);
+        setSprite(makeNode('face', cell, C * 0.94, C * 0.94), cellFace);
+      } else {
+        const g = cell.addComponent(Graphics);
+        g.fillColor = new Color(28, 10, 7, 150);
+        g.roundRect(-C * 0.47, -C * 0.47 - C * 0.025, C * 0.94, C * 0.94, C * 0.075);
+        g.fill();
+        g.fillColor = colorFromHex('#582d1e');
+        g.roundRect(-C * 0.47, -C * 0.47, C * 0.94, C * 0.94, C * 0.075);
+        g.fill();
+        g.strokeColor = new Color(126, 70, 45, 150);
+        g.lineWidth = Math.max(1.5, C * 0.018);
+        g.roundRect(-C * 0.47, -C * 0.47, C * 0.94, C * 0.94, C * 0.075);
+        g.stroke();
+      }
       this.decor.push(cell);
     }
 
@@ -409,39 +466,59 @@ export class BoardController {
     const node = makeNode(`piece_${s.id}`, this.root, pw, ph);
     node.setPosition(this.gridToLocal(cx, cy));
 
-    // 整块连续底板：格与格贴满，避免「被切开」感
-    const body = node.addComponent(Graphics);
-    const pad = 0.5; // 轻微重叠消缝
-    body.fillColor = colorFromHex(hex);
-    for (const c of cells) {
-      const lx = (c.x - cx) * C;
-      const ly = (c.y - cy) * C;
-      body.rect(lx - C / 2 - pad, ly - C / 2 - pad, C + pad * 2, C + pad * 2);
-    }
-    body.fill();
-    // 只描外轮廓：每格描边会显得碎，改为整块描边
-    // 注意：grid y 增大 = 屏幕向上，所以上/下边与邻居判断不能按旧的「屏幕 Y 反了」写法
-    body.strokeColor = colorFromHex(shadeHex(hex, 0.55));
-    body.lineWidth = 3;
-    for (const c of cells) {
-      const lx = (c.x - cx) * C;
-      const ly = (c.y - cy) * C;
-      const hasL = cells.some((o) => o.x === c.x - 1 && o.y === c.y);
-      const hasR = cells.some((o) => o.x === c.x + 1 && o.y === c.y);
-      const hasBelow = cells.some((o) => o.x === c.x && o.y === c.y - 1);
-      const hasAbove = cells.some((o) => o.x === c.x && o.y === c.y + 1);
-      const x0 = lx - C / 2, x1 = lx + C / 2, y0 = ly - C / 2, y1 = ly + C / 2;
-      if (!hasL) { body.moveTo(x0, y0); body.lineTo(x0, y1); }
-      if (!hasR) { body.moveTo(x1, y0); body.lineTo(x1, y1); }
-      if (!hasBelow) { body.moveTo(x0, y0); body.lineTo(x1, y0); }
-      if (!hasAbove) { body.moveTo(x0, y1); body.lineTo(x1, y1); }
-    }
-    body.stroke();
+    const rawLoops = this.shapeBoundaryLoops(cells, cx, cy, C);
+    const shapeInset = C * 0.045;
+    const loops = this.insetBoundaryLoops(rawLoops, shapeInset);
+    const cornerRadius = C * 0.2;
+    const bevelLoops = this.insetBoundaryLoops(rawLoops, C * 0.012);
+
+    const shadowNode = makeNode('shadow', node, pw, ph);
+    const shadow = shadowNode.addComponent(Graphics);
+    shadow.fillColor = colorFromHex(shadeHex(hex, 0.27), 235);
+    this.appendRoundedLoops(shadow, bevelLoops, C * 0.22, 0, -C * 0.085);
+    shadow.fill();
+
+    const clipNode = makeNode('contentMask', node, pw, ph);
+    const clipMask = clipNode.addComponent(Mask);
+    clipMask.type = Mask.Type.GRAPHICS_STENCIL;
+    const stencil = clipMask.subComp as Graphics;
+    stencil.fillColor = Color.WHITE;
+    this.appendRoundedLoops(stencil, loops, cornerRadius);
+    stencil.fill();
+
+    const surfaceNode = makeNode('surface', clipNode, pw, ph);
+    const surface = surfaceNode.addComponent(Graphics);
+    surface.fillColor = colorFromHex(hex);
+    this.appendRoundedLoops(surface, loops, cornerRadius);
+    surface.fill();
 
     if (matchable && pic) {
       const sf = await ResCache.loadSprite(pictureResourcePath(pic.nameFilePicture));
-      if (sf) this.placePiecePicture(node, sf, pic, cells, s.listIndexPicture, cx, cy, C);
+      if (sf) {
+        const pictureNode = makeNode('picture', node, pw, ph);
+        const pictureMask = pictureNode.addComponent(Mask);
+        pictureMask.type = Mask.Type.GRAPHICS_STENCIL;
+        const pictureStencil = pictureNode.getComponent(Graphics)!;
+        pictureStencil.clear();
+        pictureStencil.fillColor.fromHEX('#ff0000');
+        this.appendRoundedLoops(pictureStencil, loops, cornerRadius);
+        pictureStencil.fill();
+        this.placePiecePictureStencil(
+          pictureNode, sf, pic, cells, s.listIndexPicture, cx, cy, C,
+        );
+      }
     }
+
+    const outlineNode = makeNode('outline', node, pw, ph);
+    const outline = outlineNode.addComponent(Graphics);
+    outline.strokeColor = colorFromHex(shadeHex(hex, 0.48));
+    outline.lineWidth = Math.max(3.5, C * 0.068);
+    this.appendRoundedLoops(outline, loops, cornerRadius);
+    outline.stroke();
+    outline.strokeColor = new Color(255, 255, 255, 125);
+    outline.lineWidth = Math.max(1.4, C * 0.02);
+    this.appendRoundedLoops(outline, loops, cornerRadius);
+    outline.stroke();
 
     const piece: Piece = {
       id: s.id,
@@ -474,7 +551,129 @@ export class BoardController {
   }
 
   /** 按实际占用格贴图（非整块包围盒），L/T 等异形才不会「填满缺角」 */
-  private placePiecePicture(
+  private shapeBoundaryLoops(cells: Vec2I[], cx: number, cy: number, C: number): ShapePoint[][] {
+    type Edge = { a: [number, number]; b: [number, number]; used: boolean };
+    const occupied = new Set(cells.map((c) => `${c.x},${c.y}`));
+    const edges: Edge[] = [];
+    const add = (ax: number, ay: number, bx: number, by: number) => {
+      edges.push({ a: [ax, ay], b: [bx, by], used: false });
+    };
+    for (const c of cells) {
+      const x = c.x * 2;
+      const y = c.y * 2;
+      if (!occupied.has(`${c.x},${c.y - 1}`)) add(x - 1, y - 1, x + 1, y - 1);
+      if (!occupied.has(`${c.x + 1},${c.y}`)) add(x + 1, y - 1, x + 1, y + 1);
+      if (!occupied.has(`${c.x},${c.y + 1}`)) add(x + 1, y + 1, x - 1, y + 1);
+      if (!occupied.has(`${c.x - 1},${c.y}`)) add(x - 1, y + 1, x - 1, y - 1);
+    }
+
+    const byStart = new Map<string, Edge[]>();
+    for (const edge of edges) {
+      const key = `${edge.a[0]},${edge.a[1]}`;
+      const list = byStart.get(key) || [];
+      list.push(edge);
+      byStart.set(key, list);
+    }
+
+    const loops: ShapePoint[][] = [];
+    for (const first of edges) {
+      if (first.used) continue;
+      const points: [number, number][] = [];
+      let edge: Edge | undefined = first;
+      const startKey = `${first.a[0]},${first.a[1]}`;
+      while (edge && !edge.used) {
+        edge.used = true;
+        points.push(edge.a);
+        const nextKey = `${edge.b[0]},${edge.b[1]}`;
+        if (nextKey === startKey) break;
+        edge = (byStart.get(nextKey) || []).find((candidate) => !candidate.used);
+      }
+      if (points.length >= 3) {
+        const mapped = points.map(([x, y]) => ({
+          x: (x / 2 - cx) * C,
+          y: (y / 2 - cy) * C,
+        }));
+        // Adjacent occupied cells leave intermediate vertices on an otherwise
+        // straight boundary. Rounding those vertices creates a visible crease at
+        // the cell seam, so retain only actual direction changes.
+        const simplified = mapped.filter((point, i) => {
+          const prev = mapped[(i - 1 + mapped.length) % mapped.length];
+          const next = mapped[(i + 1) % mapped.length];
+          const inX = point.x - prev.x;
+          const inY = point.y - prev.y;
+          const outX = next.x - point.x;
+          const outY = next.y - point.y;
+          const cross = inX * outY - inY * outX;
+          const dot = inX * outX + inY * outY;
+          return Math.abs(cross) >= 0.001 || dot <= 0;
+        });
+        if (simplified.length >= 3) loops.push(simplified);
+      }
+    }
+    return loops;
+  }
+
+  private insetBoundaryLoops(loops: ShapePoint[][], inset: number): ShapePoint[][] {
+    const leftNormal = (from: ShapePoint, to: ShapePoint): ShapePoint => {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const length = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
+      return { x: -dy / length, y: dx / length };
+    };
+    return loops.map((loop) => loop.map((point, i) => {
+      const prev = loop[(i - 1 + loop.length) % loop.length];
+      const next = loop[(i + 1) % loop.length];
+      const incoming = leftNormal(prev, point);
+      const outgoing = leftNormal(point, next);
+      const inDx = point.x - prev.x;
+      const inDy = point.y - prev.y;
+      const outDx = next.x - point.x;
+      const outDy = next.y - point.y;
+      const cross = inDx * outDy - inDy * outDx;
+      if (Math.abs(cross) < 0.001) {
+        return { x: point.x + outgoing.x * inset, y: point.y + outgoing.y * inset };
+      }
+      return {
+        x: point.x + (incoming.x + outgoing.x) * inset,
+        y: point.y + (incoming.y + outgoing.y) * inset,
+      };
+    }));
+  }
+
+  private appendRoundedLoops(
+    g: Graphics,
+    loops: ShapePoint[][],
+    radius: number,
+    offsetX = 0,
+    offsetY = 0,
+  ) {
+    const toward = (from: ShapePoint, to: ShapePoint, distance: number): ShapePoint => {
+      const dx = to.x - from.x;
+      const dy = to.y - from.y;
+      const length = Math.max(0.001, Math.sqrt(dx * dx + dy * dy));
+      const scale = Math.min(distance, length * 0.45) / length;
+      return { x: from.x + dx * scale + offsetX, y: from.y + dy * scale + offsetY };
+    };
+    for (const loop of loops) {
+      if (loop.length < 3) continue;
+      const first = loop[0];
+      const previous = loop[loop.length - 1];
+      const start = toward(first, previous, radius);
+      g.moveTo(start.x, start.y);
+      for (let i = 0; i < loop.length; i++) {
+        const vertex = loop[i];
+        const prev = loop[(i - 1 + loop.length) % loop.length];
+        const next = loop[(i + 1) % loop.length];
+        const before = toward(vertex, prev, radius);
+        const after = toward(vertex, next, radius);
+        g.lineTo(before.x, before.y);
+        g.quadraticCurveTo(vertex.x + offsetX, vertex.y + offsetY, after.x, after.y);
+      }
+      g.close();
+    }
+  }
+
+  private placePiecePictureStencil(
     parent: Node,
     sf: SpriteFrame,
     pic: PictureData,
@@ -484,32 +683,85 @@ export class BoardController {
     cy: number,
     C: number,
   ) {
+    const first = indices.findIndex((idx) => idx >= 0);
+    if (first < 0 || !cells[first]) return;
+
+    const firstIdx = indices[first];
+    const firstCell = cells[first];
+    const logicalCol = firstIdx % pic.width;
+    const logicalRow = Math.floor(firstIdx / pic.width);
+    const textureCol = pic.isFlipX ? pic.width - 1 - logicalCol : logicalCol;
+    const textureRow = pic.isFlipY ? logicalRow : pic.height - 1 - logicalRow;
+    const cellX = (firstCell.x - cx) * C;
+    const cellY = (firstCell.y - cy) * C;
+    const imageX = cellX + C * (pic.width / 2 - textureCol - 0.5);
+    const imageY = cellY + C * (textureRow + 0.5 - pic.height / 2);
+    const pictureScale = 0.86;
+
+    // A single full picture is positioned from the first fragment mapping.
+    // The parent GRAPHICS_STENCIL performs all outer and concave clipping.
+    const image = makeNode('image', parent, pic.width * C * pictureScale, pic.height * C * pictureScale);
+    image.setPosition(imageX, imageY, 0);
+    const sprite = setSprite(image, sf);
+    sprite.trim = false;
+  }
+
+  private placePiecePicture(
+    parent: Node,
+    sf: SpriteFrame,
+    pic: PictureData,
+    cells: Vec2I[],
+    indices: number[],
+    cx: number,
+    cy: number,
+    C: number,
+    loops: ShapePoint[][],
+    cornerRadius: number,
+  ) {
     const w = pic.width;
     const h = pic.height;
     // 略重叠消缝；只画有碎片的格
-    const size = C + 1;
+    const first = indices.findIndex((idx) => idx >= 0);
+    if (first < 0 || !cells[first]) return;
+    const firstIdx = indices[first];
+    const firstCell = cells[first];
+    const firstCol = firstIdx % w;
+    const firstRow = Math.floor(firstIdx / w);
+    const firstTexRow = pic.isFlipY ? firstRow : (h - 1 - firstRow);
+    const firstTexCol = pic.isFlipX ? (w - 1 - firstCol) : firstCol;
+    const firstX = (firstCell.x - cx) * C;
+    const firstY = (firstCell.y - cy) * C;
+    const imageCenterX = firstX + C * (w / 2 - firstTexCol - 0.5);
+    const imageCenterY = firstY + C * (firstTexRow + 0.5 - h / 2);
+    const pictureScale = 0.86;
     for (let i = 0; i < cells.length; i++) {
       const idx = indices[i];
       if (idx < 0) continue;
       const c = cells[i];
       const lx = (c.x - cx) * C;
       const ly = (c.y - cy) * C;
-      const col = idx % w;
-      const row = Math.floor(idx / w);
       // Unity：grid y 增大 = 图片 row 增大；屏幕 y 向上 = row 向上
       // 纹理 row0 在图顶部，需映射 texRow = h-1-row（isFlipY 时再反一次）
-      const texRow = pic.isFlipY ? row : (h - 1 - row);
-      const texCol = pic.isFlipX ? (w - 1 - col) : col;
-
-      const maskNode = makeNode(`frag_${i}`, parent, C, C);
+      const maskNode = makeNode(`frag_${i}`, parent, C + 2, C + 2);
       maskNode.setPosition(lx, ly, 0);
       const mask = maskNode.addComponent(Mask);
-      mask.type = Mask.Type.GRAPHICS_RECT;
+      mask.type = Mask.Type.GRAPHICS_STENCIL;
+      const rectStencil = mask.subComp as Graphics;
+      rectStencil.fillColor = Color.WHITE;
+      rectStencil.rect(-C * 0.5 - 1, -C * 0.5 - 1, C + 2, C + 2);
+      rectStencil.fill();
 
-      const img = makeNode('img', maskNode, w * size, h * size);
-      const imgX = size * (w / 2 - texCol - 0.5);
-      const imgY = size * (texRow + 0.5 - h / 2);
-      img.setPosition(imgX, imgY, 0);
+      // The outer cell mask prevents bleed; the nested mask reuses the exact outline path.
+      const curveNode = makeNode('outlineClip', maskNode, C + 2, C + 2);
+      const curveMask = curveNode.addComponent(Mask);
+      curveMask.type = Mask.Type.GRAPHICS_STENCIL;
+      const curveStencil = curveMask.subComp as Graphics;
+      curveStencil.fillColor = Color.WHITE;
+      this.appendRoundedLoops(curveStencil, loops, cornerRadius, -lx, -ly);
+      curveStencil.fill();
+
+      const img = makeNode('img', curveNode, w * C * pictureScale, h * C * pictureScale);
+      img.setPosition(imageCenterX - lx, imageCenterY - ly, 0);
       setSprite(img, sf);
     }
   }
@@ -594,7 +846,7 @@ export class BoardController {
   // ─── input ───────────────────────────────────────────
 
   private onDown(e: EventTouch) {
-    if (!this.running || this.levelDone) return;
+    if (!this.running || this.levelDone || this.autoCompleting) return;
     const ui = e.getUILocation();
     const ut = this.root.getComponent(UITransform)!;
     const local = ut.convertToNodeSpaceAR(new Vec3(ui.x, ui.y, 0));
@@ -658,14 +910,12 @@ export class BoardController {
     if (arrow === ArrowDirection.Vertical) dx = 0;
 
     const anchor = this.drag.startCells;
-    let targetX = Math.round(dx / C);
-    let targetY = Math.round(dy / C);
-    const maxPX = this.maxMoveStepsFrom(this.drag.group, anchor, 1, 0);
-    const maxNX = this.maxMoveStepsFrom(this.drag.group, anchor, -1, 0);
-    const maxPY = this.maxMoveStepsFrom(this.drag.group, anchor, 0, 1);
-    const maxNY = this.maxMoveStepsFrom(this.drag.group, anchor, 0, -1);
-    targetX = Math.max(-maxNX, Math.min(maxPX, targetX));
-    targetY = Math.max(-maxNY, Math.min(maxPY, targetY));
+    // Do not clamp against the press-down row/column. After the piece has moved
+    // around an obstacle, those old limits are stale (for example: move up, then
+    // left past a block that only occupied the original row). Each step below is
+    // validated against the piece's current cells, which is the authoritative rule.
+    const targetX = Math.max(-24, Math.min(24, Math.round(dx / C)));
+    const targetY = Math.max(-24, Math.min(24, Math.round(dy / C)));
 
     let { x: curX, y: curY } = this.stepFromAnchor(this.drag.group, anchor);
     while (curX < targetX) {
@@ -730,6 +980,7 @@ export class BoardController {
     if (remY < 0 && !canStep(0, -1)) remY = Math.max(remY, -rubber);
     remX = Math.max(-C * 0.5, Math.min(C * 0.5, remX));
     remY = Math.max(-C * 0.5, Math.min(C * 0.5, remY));
+    if (this.tryAutoCompleteDrag(remX, remY)) return;
     this.applyGroupVisualOffset(this.drag.group, remX, remY);
     this.refreshPictureHighlights();
     if (this.drag.touchRing?.isValid) {
@@ -784,17 +1035,100 @@ export class BoardController {
     return { x: cc.x - ac.x, y: cc.y - ac.y };
   }
 
-  private maxMoveStepsFrom(group: Piece[], anchor: Vec2I[][], dirX: number, dirY: number): number {
-    const groupIds = new Set(group.map((p) => p.id));
-    let steps = 0;
-    let test = anchor.map((cells) => cells.map((c) => ({ ...c })));
-    for (let i = 0; i < 24; i++) {
-      const proposed = test.map((cells) => cells.map((c) => ({ x: c.x + dirX, y: c.y + dirY })));
-      if (!this.canPlaceGroupAt(group, proposed, groupIds)) break;
-      test = proposed;
-      steps++;
+  /**
+   * When a dragged picture group is close to its exact assembled position, snap it
+   * into place and end the logical touch immediately. The later native TOUCH_END
+   * becomes a no-op because this.drag has already been cleared.
+   */
+  private tryAutoCompleteDrag(remX: number, remY: number): boolean {
+    const d = this.drag;
+    if (!d || !d.piece.matchable || d.piece.idPanelPicture < 0) return false;
+    const pic = this.picMap.get(d.piece.idPanelPicture);
+    if (!pic) return false;
+
+    const groupIds = new Set(d.group.map((p) => p.id));
+    const snapDistance = this.cell * 0.2;
+    let best: { dx: number; dy: number; distance: number; proposed: Vec2I[][] } | null = null;
+
+    // The free visual remainder is limited to half a cell, so only the current
+    // grid position and its immediate neighbours can enter the snap radius.
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dx = -1; dx <= 1; dx++) {
+        const distance = Math.hypot(remX - dx * this.cell, remY - dy * this.cell);
+        if (distance > snapDistance || (best && distance >= best.distance)) continue;
+        const proposed = d.group.map((p) =>
+          p.cells.map((c) => ({ x: c.x + dx, y: c.y + dy })));
+        if (!this.canPlaceGroupAt(d.group, proposed, groupIds)) continue;
+        if (!this.isPictureAssembledWith(pic, d.group, proposed)) continue;
+        best = { dx, dy, distance, proposed };
+      }
     }
-    return steps;
+    if (!best) return false;
+
+    this.autoCompleting = true;
+    for (let i = 0; i < d.group.length; i++) {
+      d.group[i].cells = best.proposed[i];
+      Tween.stopAllByTarget(d.group[i].node);
+      d.group[i].node.setScale(1.04, 1.04, 1);
+      this.syncPieceNode(d.group[i]);
+      const snapTween = tween(d.group[i].node)
+        .to(0.08, { scale: new Vec3(1, 1, 1) }, { easing: 'quadOut' });
+      if (i === 0) {
+        snapTween.call(() => {
+          this.autoCompleting = false;
+          this.onAfterMove();
+        });
+      }
+      snapTween.start();
+    }
+
+    const changed = d.group.some((p, i) =>
+      p.cells.some((c, j) => c.x !== d.startCells[i][j].x || c.y !== d.startCells[i][j].y));
+    if (changed) {
+      this.lastMoveDelta = {
+        x: d.group[0].cells[0].x - d.startCells[0][0].x,
+        y: d.group[0].cells[0].y - d.startCells[0][0].y,
+      };
+    }
+    this.clearDragChrome(d);
+    this.drag = null;
+    SoundMgr.playMove(this.moveMaterial(d.piece));
+    return true;
+  }
+
+  /** Test the normal picture-complete rule against a proposed dragged position. */
+  private isPictureAssembledWith(pic: PictureData, group: Piece[], proposed: Vec2I[][]): boolean {
+    const proposedById = new Map<number, Vec2I[]>();
+    for (let i = 0; i < group.length; i++) proposedById.set(group[i].id, proposed[i]);
+
+    const cells: { x: number; y: number; idx: number }[] = [];
+    for (const p of this.pieces) {
+      if (!p.alive || p.inTunnel || p.hiddenUnder || p.contained || p.idPanelPicture !== pic.id) continue;
+      if (p.ice > 0 || p.lock > 0 || p.mystery > 0 || p.colorBlock > 0) return false;
+      const positions = proposedById.get(p.id) || p.cells;
+      for (let i = 0; i < positions.length; i++) {
+        const idx = p.picIndices[i];
+        if (idx >= 0) cells.push({ x: positions[i].x, y: positions[i].y, idx });
+      }
+    }
+
+    const expected = pic.width * pic.height;
+    if (cells.length < expected) return false;
+    const seen = new Set<number>();
+    for (const c of cells) {
+      if (seen.has(c.idx)) return false;
+      seen.add(c.idx);
+    }
+    if (seen.size < expected) return false;
+
+    const ref = cells[0];
+    const refCol = ref.idx % pic.width;
+    const refRow = Math.floor(ref.idx / pic.width);
+    return cells.every((c) => {
+      const col = c.idx % pic.width;
+      const row = Math.floor(c.idx / pic.width);
+      return c.x - ref.x === col - refCol && c.y - ref.y === row - refRow;
+    });
   }
 
   private applyGroupVisualOffset(group: Piece[], ox: number, oy: number) {
@@ -822,10 +1156,43 @@ export class BoardController {
 
   /** 同图所有碎片外轮廓描边（相邻格共享边不描，拼在一起时成一体） */
   private addPictureHighlights(picGroup: Piece[]): Node[] {
-    const hl = makeNode('picHL', this.root, 1, 1);
-    this.paintPictureOutline(hl, picGroup);
-    hl.setSiblingIndex(this.root.children.length - 1);
-    return [hl];
+    const highlights: Node[] = [];
+    const C = this.cell;
+    for (const p of picGroup) {
+      const xs = p.cells.map((c) => c.x);
+      const ys = p.cells.map((c) => c.y);
+      const minX = Math.min(...xs);
+      const maxX = Math.max(...xs);
+      const minY = Math.min(...ys);
+      const maxY = Math.max(...ys);
+      const cx = (minX + maxX) / 2;
+      const cy = (minY + maxY) / 2;
+      const pw = (maxX - minX + 1) * C;
+      const ph = (maxY - minY + 1) * C;
+      const loops = this.insetBoundaryLoops(
+        this.shapeBoundaryLoops(p.cells, cx, cy, C),
+        C * 0.045,
+      );
+
+      const hl = makeNode('selectionOutline', p.node, pw, ph);
+      const g = hl.addComponent(Graphics);
+      g.lineJoin = Graphics.LineJoin.ROUND;
+      g.lineCap = Graphics.LineCap.ROUND;
+
+      // A soft outer highlight plus a crisp white core matches the reference selection edge.
+      g.strokeColor = new Color(255, 255, 255, 105);
+      g.lineWidth = Math.max(6, C * 0.1);
+      this.appendRoundedLoops(g, loops, C * 0.2);
+      g.stroke();
+
+      g.strokeColor = Color.WHITE;
+      g.lineWidth = Math.max(2.5, C * 0.043);
+      this.appendRoundedLoops(g, loops, C * 0.2);
+      g.stroke();
+      hl.setSiblingIndex(p.node.children.length - 1);
+      highlights.push(hl);
+    }
+    return highlights;
   }
 
   private refreshPictureHighlights() {
@@ -1012,7 +1379,7 @@ export class BoardController {
     const op = trail.addComponent(UIOpacity);
     op.opacity = 210;
     tween(op)
-      .to(0.45, { opacity: 0 }, { easing: 'quadOut' })
+      .to(0.25, { opacity: 0 }, { easing: 'quadOut' })
       .call(() => { if (trail.isValid) trail.destroy(); })
       .start();
     return trail;
@@ -1287,24 +1654,25 @@ export class BoardController {
   private spawnMatchBurst(gx: number, gy: number) {
     const center = this.gridToLocal(gx, gy);
     const colors = ['#fff59d', '#ffffff', '#ffeb3b', '#c8e6c9', '#e1bee7'];
-    for (let i = 0; i < 10; i++) {
-      const n = makeNode('matchBurst', this.root, 16, 16);
+    const particleSize = Math.max(28, this.cell * 0.42);
+    for (let i = 0; i < 12; i++) {
+      const n = makeNode('matchBurst', this.root, particleSize, particleSize);
       n.setPosition(center.x, center.y, 0);
       n.setSiblingIndex(this.root.children.length - 1);
       const g = n.addComponent(Graphics);
       g.fillColor = colorFromHex(colors[i % colors.length]);
-      const r = 4 + (i % 3) * 2;
+      const r = Math.max(8, this.cell * 0.14) + (i % 3) * Math.max(3, this.cell * 0.05);
       g.circle(0, 0, r);
       g.fill();
       const op = n.addComponent(UIOpacity);
       op.opacity = 240;
-      const ang = (Math.PI * 2 * i) / 10 + Math.random() * 0.4;
-      const dist = this.cell * (0.45 + Math.random() * 0.55);
+      const ang = (Math.PI * 2 * i) / 12 + Math.random() * 0.4;
+      const dist = this.cell * (0.55 + Math.random() * 0.75);
       tween(n)
         .parallel(
           tween().to(0.32, { position: new Vec3(center.x + Math.cos(ang) * dist, center.y + Math.sin(ang) * dist, 0) }),
           tween(op).to(0.32, { opacity: 0 }),
-          tween().to(0.32, { scale: new Vec3(0.2, 0.2, 1) }),
+          tween().to(0.32, { scale: new Vec3(0.35, 0.35, 1) }),
         )
         .call(() => { if (n.isValid) n.destroy(); })
         .start();

@@ -450,22 +450,33 @@ export class GameApp extends Component {
     const kids = this.goalBar.children.slice();
     for (const c of kids) c.destroy();
     const goals = this.board.goals();
+    const [goalFrame, goalFrameBack] = await Promise.all([
+      ResCache.uiBr('UI_ingame_BG_Frame'),
+      ResCache.uiBr('UI_ingame_BG_Frame_back'),
+    ]);
     const gap = 58;
     const startX = -((goals.length - 1) * gap) / 2;
     for (let i = 0; i < goals.length; i++) {
       const g = goals[i];
       const item = makeNode('g', this.goalBar, 52, 52);
       item.setPosition(startX + i * gap, 0, 0);
-      const bg = item.addComponent(Graphics);
-      bg.fillColor = colorFromHex(g.done ? '#c8e6c9' : '#fff6e4');
-      bg.roundRect(-26, -26, 52, 52, 10);
-      bg.fill();
-      bg.strokeColor = colorFromHex(g.done ? '#43a047' : '#b87a3c');
-      bg.lineWidth = 2;
-      bg.roundRect(-26, -26, 52, 52, 10);
-      bg.stroke();
-      const sf = await ResCache.loadSprite(g.path);
-      if (sf) setSprite(makeNode('i', item, 36, 36), sf);
+      const frame = g.done ? goalFrameBack : goalFrame;
+      if (frame) {
+        setSprite(item, frame);
+      } else {
+        const bg = item.addComponent(Graphics);
+        bg.fillColor = colorFromHex(g.done ? '#c8e6c9' : '#fff6e4');
+        bg.roundRect(-26, -26, 52, 52, 10);
+        bg.fill();
+        bg.strokeColor = colorFromHex(g.done ? '#43a047' : '#b87a3c');
+        bg.lineWidth = 2;
+        bg.roundRect(-26, -26, 52, 52, 10);
+        bg.stroke();
+      }
+      if (!g.done) {
+        const sf = await ResCache.loadSprite(g.path);
+        if (sf) setSprite(makeNode('i', item, 34, 34), sf);
+      }
       if (g.done) addLabel(makeNode('ok', item, 40, 24), '✓', 22, '#2e7d32');
     }
   }

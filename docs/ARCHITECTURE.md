@@ -143,14 +143,14 @@ startLevel
 - **`pictureResourcePath()`**：`AssetPicture\Foo\bar` → `pictures/Foo/bar`
 - **shape 去重：** 完全相同条目跳过；重复 id 自动分配新 id（修复 Lv70/Lv89 源数据问题）
 
-### 4.3 `BoardController.ts` — 棋盘核心（~1200 行）
+### 4.3 `BoardController.ts` — 棋盘核心（~1900 行）
 
 按功能分区（搜索 `// ───` 分隔注释）：
 
 | 区块 | 内容 |
 |------|------|
-| build | `buildBoard` / `makePiece` / `placePiecePicture` / Ground 托盘 |
-| input | 触摸拖拽、方向箭限制、旋转器点击 |
+| build | `buildBoard` / `makePiece` / `placePiecePictureStencil` / Ground 托盘 |
+| input | 触摸拖拽、选中描边、方向箭限制、自动吸附、旋转器点击 |
 | move | `tryMoveGroup` / `isWalkable` / `isBlockedByEnv` |
 | picture complete | `isPictureAssembled` / `completePicture` / `flyOut` |
 | env / layered / colorblock | 双层、ColorBlock 绳、木箱/卷帘/粉碎/隧道 |
@@ -165,6 +165,28 @@ startLevel
 - `spawnCells` — 开局 `listPos`（隧道落点、双层揭示恢复）
 - `picIndices` — 每格对应图片碎片 index
 - `hiddenUnder` / `inTunnel` / `contained` — 不可交互状态
+
+#### 4.3.1 拼块渲染与遮罩层级
+
+`makePiece` 运行时生成如下节点；不依赖 prefab：
+
+```text
+piece_*
+├─ shadow                    # Graphics：下沉偏移的深色厚边
+├─ contentMask               # Mask.GRAPHICS_STENCIL
+│  └─ surface                # Graphics：拼块底色
+├─ picture                   # Mask.GRAPHICS_STENCIL，与 contentMask 同级
+│  └─ image                  # 单张完整 Sprite，不再逐格拆 pictureCell
+├─ outline                   # Graphics：深色结构线 + 常态浅色高光
+└─ selectionOutline          # 仅拖动选中时临时创建，结束拖动即销毁
+```
+
+- `shapeBoundaryLoops` 从 `Piece.cells` 生成正交多边形，并删除连续相邻格在直边上产生的同向共线点，避免格子接缝被误画成圆角折痕；`insetBoundaryLoops` 计算内缩轮廓，`appendRoundedLoops` 只处理真正的外圆角和内凹圆角。
+- `contentMask`、`picture` 和 `outline` 复用同一组内缩轮廓与圆角半径，避免图片裁剪边缘和可见描边不一致。
+- `picture` 必须使用 `Mask.Type.GRAPHICS_STENCIL`，并从 Mask 节点自身取得自动附加的 `Graphics`；stencil 按文档使用 `fillColor.fromHEX('#ff0000')` 后填充。颜色只参与 stencil 绘制，不作为最终可见颜色。
+- `placePiecePictureStencil` 只放置一个完整图片 Sprite，通过首个有效 `picIndex` 计算图片相对拼块的位置；当前图片缩放系数为 `0.86`。
+- 选中态对同一图片的每个碎片分别创建 `selectionOutline`，沿各自真实圆角轮廓绘制“半透明宽外光 + 实心白色细线”，并随碎片节点移动。
+- `shadow` 使用比可见表面略大的轮廓并向下偏移，负责参考图中的厚边；不要通过扩大图片或遮罩来模拟厚度。
 
 ### 4.4 `EnvHelpers.ts` — 环境机关
 
@@ -278,7 +300,24 @@ Local: gridToLocal(x,y) → ((x-cxm)*C, (y-cym)*C)
 2. 碎片 index 0…(w×h-1) 各出现一次
 3. 相对位置与 index 的行列差一致（允许整体平移）
 
-### 7.2 方块机制（`MechanicType` 位标志）
+#### 拖动中的提前吸附
+
+- `tryAutoCompleteDrag(remX, remY)` 在 `onMove` 中、应用自由视觉偏移前执行。
+- 仅检查当前网格位置及八个相邻位置；候选位置仍需通过 `canPlaceGroupAt` 碰撞检查与 `isPictureAssembledWith` 完整拼图校验。
+- 当前吸附距离为 **`cell × 0.2`**。进入阈值后立即把移动组的 `cells` 更新为候选位置，并用 `syncPieceNode` 对齐准确网格。
+- 自动吸附会清理白色选中描边、触摸圆环并将 `drag` 置空；随后到达的原生 `TOUCH_END` 不再重复结算。
+- 拼块先完成 `0.08s` 的缩放回弹，再调用 `onAfterMove`。因此 `completePicture` 的粒子与飞出动画一定发生在碎片已对齐之后。
+- 回弹期间 `autoCompleting=true`，`onDown` 会拒绝新触摸；新关卡 `clear()` 必须复位该状态。
+
+### 7.2 拖动与碰撞流程
+
+1. `onDown` 命中拼块，分别建立联动移动组 `getMoveGroup` 与同图高亮组 `getPictureGroup`。
+2. `onMove` 根据指针相对按下点计算目标格偏移；方向箭只清零被限制的轴。
+3. 每一个离散步都基于拼块**当前 `cells`** 调用 `tryMoveGroup` / `canPlaceGroupAt`，不能使用按下时所在行列预计算最大步数。否则绕开障碍后仍会被旧位置错误阻挡。
+4. 无法跨入下一格时仅保留 `cell × 0.14` 的橡皮筋视觉位移；可移动时自由余量限制在半格。
+5. 未触发自动吸附时，`onUp` 将位置取整、恢复缩放并执行 `onAfterMove`。
+
+### 7.3 方块机制（`MechanicType` 位标志）
 
 | 机制 | 行为要点 |
 |------|----------|
@@ -292,7 +331,7 @@ Local: gridToLocal(x,y) → ((x-cxm)*C, (y-cym)*C)
 | ColorBlock | 位标志绳色；揭示对应色图 `cutColorBlocks` |
 | Mystery | 完成图 revealMystery |
 
-### 7.3 环境机关
+### 7.4 环境机关
 
 | 机关 | 触发 / 逻辑 |
 |------|-------------|
@@ -305,7 +344,7 @@ Local: gridToLocal(x,y) → ((x-cxm)*C, (y-cym)*C)
 | ColorPath | 同色块沿滑动方向强制滑行 |
 | WallIce | 完成图 tick -1，归零移除阻挡 |
 
-### 7.4 道具
+### 7.5 道具
 
 | 道具 | 方法 |
 |------|------|
@@ -360,6 +399,8 @@ node tools/validate-levels.mjs 1 100
 6. **不要做 XY 对调 listPos** — 会破坏 picture index 与格子的对应关系
 7. **源关卡偶发重复 shape** — Parser 已 dedupe + 重分配 id；极端关仍建议跑 validate
 8. **纯代码 UI** — 无 prefab 驱动，改 UI 去 `GameApp.build*` / `UIFactory`
+9. **拖动范围不能按初始行列缓存** — 拼块可能先沿一轴绕开障碍，再沿另一轴继续移动；碰撞必须基于当前 `cells` 逐步判定
+10. **图片遮罩不要拆成逐格矩形** — 活跃实现是 `picture` 节点上的单个 `GRAPHICS_STENCIL`，轮廓必须复用 `makePiece` 的 rounded loops
 
 ---
 
@@ -417,6 +458,8 @@ ResCache
 | — | 方块占用格补 Ground（Lv75 双层 spawn） |
 | — | LevelParser shape 去重 / 冲突 id 重分配 |
 | — | clear/flyOut 双重 destroy 修复 |
+| 2026-08-05 | 拼块图片改为单 Sprite + `GRAPHICS_STENCIL` 精确圆角/内凹裁剪；补齐厚边与选中白描边 |
+| 2026-08-05 | 拖动改为基于当前位置逐步碰撞；增加 `0.2` 格提前吸附，并保证先对齐再播放合并效果 |
 
 ---
 

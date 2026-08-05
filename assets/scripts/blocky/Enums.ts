@@ -81,19 +81,19 @@ export enum TypeEnvironment {
 }
 
 export const GAME_COLOR_HEX: Record<number, string> = {
-  [GameColor.Red]: '#e53935',
-  [GameColor.Orange]: '#fb8c00',
-  [GameColor.Green]: '#43a047',
-  [GameColor.DarkGreen]: '#2e7d32',
-  [GameColor.Pink]: '#ec407a',
-  [GameColor.Purple]: '#8e24aa',
+  [GameColor.Red]: '#ff3d43',
+  [GameColor.Orange]: '#ff9d1c',
+  [GameColor.Green]: '#48e52d',
+  [GameColor.DarkGreen]: '#2fbd35',
+  [GameColor.Pink]: '#ff5a94',
+  [GameColor.Purple]: '#a742d1',
   [GameColor.Chocolate]: '#6d4c41',
   [GameColor.White]: '#eceff1',
   [GameColor.Teal]: '#00897b',
   [GameColor.Violet]: '#7e57c2',
-  [GameColor.Yellow]: '#fdd835',
-  [GameColor.Blue]: '#1e88e5',
-  [GameColor.Turquoise]: '#26c6da',
+  [GameColor.Yellow]: '#ffe13b',
+  [GameColor.Blue]: '#349cf6',
+  [GameColor.Turquoise]: '#31d6e8',
 };
 
 export function colorHex(c: number): string {

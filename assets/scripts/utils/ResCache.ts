@@ -91,6 +91,7 @@ export class ResCache {
   }
 
   static img(name: string) { return this.loadSprite(`img/${name}`); }
+
   static ui(name: string) { return this.loadSprite(`ui/${name}`); }
   static uiBr(name: string) { return this.loadSprite(`ui_br/${name}`); }
 }
