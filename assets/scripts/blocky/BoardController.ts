@@ -117,9 +117,12 @@ export class BoardController {
   }
 
   clear() {
-    for (const p of this.pieces) p.node.destroy();
-    for (const d of this.decor) d.destroy();
-    for (const w of this.wallIce) w.node.destroy();
+    for (const p of this.pieces) {
+      if (p.node?.isValid) p.node.destroy();
+    }
+    for (const d of this.decor) {
+      if (d?.isValid) d.destroy();
+    }
     this.pieces = [];
     this.decor = [];
     this.wallIce = [];
@@ -148,10 +151,12 @@ export class BoardController {
     this.activeTool = null;
     this.frozenTimer = 0;
     this.timeLeft = lvl.timeLimit || 180;
-    this.pictures = lvl.listPictureData.slice();
-    this.picMap = new Map(lvl.listPictureData.map((p) => [p.id, p]));
-    this.board = lvl.board;
-    await this.buildBoard(lvl);
+    // 深拷贝，避免 ensureGround 改写 ResCache 缓存
+    const level = JSON.parse(JSON.stringify(lvl)) as LevelConfig;
+    this.pictures = level.listPictureData.slice();
+    this.picMap = new Map(level.listPictureData.map((p) => [p.id, p]));
+    this.board = level.board;
+    await this.buildBoard(level);
     this.applyLayeredHidden();
     this.applyContainedFlags();
     this.tryThrowTunnels();
@@ -224,7 +229,14 @@ export class BoardController {
   // ─── build ───────────────────────────────────────────
 
   private async buildBoard(lvl: LevelConfig) {
-    const ground = this.collectGround(lvl.board);
+    const ground = this.collectGround(lvl.board).map((c) => ({ ...c }));
+    // 仅补方块占用格（双层块等 spawn 可能在 Ground 外），不填实心包围盒
+    for (const s of lvl.listShapePictureData) {
+      for (const p of s.listPos) {
+        if (!ground.some((g) => g.x === p.x && g.y === p.y)) ground.push({ x: p.x, y: p.y });
+        this.ensureGround(p.x, p.y);
+      }
+    }
     if (!ground.length) return;
 
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
@@ -253,7 +265,11 @@ export class BoardController {
     tg.fill();
     this.decor.push(tray);
 
+    const seen = new Set<string>();
     for (const c of ground) {
+      const k = `${c.x},${c.y}`;
+      if (seen.has(k)) continue;
+      seen.add(k);
       const cell = makeNode('cell', this.root, C * 0.92, C * 0.92);
       cell.setPosition(this.gridToLocal(c.x, c.y));
       const g = cell.addComponent(Graphics);
@@ -326,6 +342,15 @@ export class BoardController {
       }
     }
     return out;
+  }
+
+  /** 保证 (x,y) 可走；必要时扩展 board 数组 */
+  private ensureGround(x: number, y: number) {
+    if (y < 0 || x < 0) return;
+    while (this.board.length <= y) this.board.push([]);
+    const row = this.board[y];
+    while (row.length <= x) row.push(TypeEnvironment.Block);
+    row[x] = TypeEnvironment.Ground;
   }
 
   private spawnMarker(pos: Vec2I, hex: string, tag: string) {
@@ -832,7 +857,9 @@ export class BoardController {
     tween(p.node)
       .to(0.35, { position: new Vec3(p.node.position.x, p.node.position.y + 160, 0), scale: new Vec3(0.2, 0.2, 1) }, { easing: 'quadOut' })
       .start();
-    tween(op).to(0.35, { opacity: 0 }).call(() => p.node.destroy()).start();
+    tween(op).to(0.35, { opacity: 0 }).call(() => {
+      if (p.node?.isValid) p.node.destroy();
+    }).start();
   }
 
   private meltIce(n: number) {
@@ -868,7 +895,7 @@ export class BoardController {
       w.num = Math.max(0, w.num - n);
       w.label.string = String(w.num);
       if (w.num <= 0) {
-        w.node.destroy();
+        if (w.node?.isValid) w.node.destroy();
       }
     }
     this.wallIce = this.wallIce.filter((w) => w.num > 0);

@@ -92,12 +92,35 @@ function parsePictures(section: string): PictureData[] {
 }
 
 function parseShapes(section: string): ShapePictureData[] {
-  const list: ShapePictureData[] = [];
+  const entries: string[] = [];
   for (const item of splitEntries(section)) {
     const p = item.split(':');
     if (p.length < 19) continue;
+    entries.push(item);
+  }
+
+  const list: ShapePictureData[] = [];
+  const seenEntry = new Set<string>();
+  const usedId = new Set<number>();
+  let maxId = 0;
+  for (const item of entries) {
+    maxId = Math.max(maxId, toInt(item.split(':')[0]));
+  }
+
+  for (const item of entries) {
+    if (seenEntry.has(item)) continue;
+    seenEntry.add(item);
+
+    const p = item.split(':');
+    let id = toInt(p[0]);
+    if (usedId.has(id)) {
+      maxId += 1;
+      id = maxId;
+    }
+    usedId.add(id);
+
     list.push({
-      id: toInt(p[0]),
+      id,
       rotation: toFloat(p[1]),
       posRelative: parseVec2List(p[2]),
       listPos: parseVec2List(p[3]),
