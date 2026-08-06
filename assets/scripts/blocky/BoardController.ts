@@ -470,12 +470,14 @@ export class BoardController {
     const shapeInset = C * 0.045;
     const loops = this.insetBoundaryLoops(rawLoops, shapeInset);
     const cornerRadius = C * 0.2;
-    const bevelLoops = this.insetBoundaryLoops(rawLoops, C * 0.012);
 
     const shadowNode = makeNode('shadow', node, pw, ph);
     const shadow = shadowNode.addComponent(Graphics);
     shadow.fillColor = colorFromHex(shadeHex(hex, 0.27), 235);
-    this.appendRoundedLoops(shadow, bevelLoops, C * 0.22, 0, -C * 0.085);
+    // Keep the same horizontal footprint as the visible surface. Thickness is a
+    // downward extrusion only; expanding all sides leaves an unwanted vertical
+    // strip along the left edge of tall pieces.
+    this.appendRoundedLoops(shadow, loops, cornerRadius, 0, -C * 0.085);
     shadow.fill();
 
     const clipNode = makeNode('contentMask', node, pw, ph);
@@ -491,6 +493,18 @@ export class BoardController {
     surface.fillColor = colorFromHex(hex);
     this.appendRoundedLoops(surface, loops, cornerRadius);
     surface.fill();
+
+    const outlineNode = makeNode('outline', node, pw, ph);
+    const outline = outlineNode.addComponent(Graphics);
+    outline.strokeColor = colorFromHex(shadeHex(hex, 0.48));
+    outline.lineWidth = Math.max(1.2, C * 0.02);
+    this.appendRoundedLoops(outline, loops, cornerRadius);
+    outline.stroke();
+    outline.strokeColor = new Color(255, 255, 255, 125);
+    outline.lineWidth = Math.max(1.1, C * 0.016);
+    outline.lineCap = Graphics.LineCap.ROUND;
+    this.appendTopHighlights(outline, loops, cornerRadius);
+    outline.stroke();
 
     if (matchable && pic) {
       const sf = await ResCache.loadSprite(pictureResourcePath(pic.nameFilePicture));
@@ -508,17 +522,6 @@ export class BoardController {
         );
       }
     }
-
-    const outlineNode = makeNode('outline', node, pw, ph);
-    const outline = outlineNode.addComponent(Graphics);
-    outline.strokeColor = colorFromHex(shadeHex(hex, 0.48));
-    outline.lineWidth = Math.max(3.5, C * 0.068);
-    this.appendRoundedLoops(outline, loops, cornerRadius);
-    outline.stroke();
-    outline.strokeColor = new Color(255, 255, 255, 125);
-    outline.lineWidth = Math.max(1.4, C * 0.02);
-    this.appendRoundedLoops(outline, loops, cornerRadius);
-    outline.stroke();
 
     const piece: Piece = {
       id: s.id,
@@ -670,6 +673,23 @@ export class BoardController {
         g.quadraticCurveTo(vertex.x + offsetX, vertex.y + offsetY, after.x, after.y);
       }
       g.close();
+    }
+  }
+
+  /** Draw the normal glossy highlight on upward-facing edges only. */
+  private appendTopHighlights(g: Graphics, loops: ShapePoint[][], cornerRadius: number) {
+    for (const loop of loops) {
+      for (let i = 0; i < loop.length; i++) {
+        const from = loop[i];
+        const to = loop[(i + 1) % loop.length];
+        const dx = to.x - from.x;
+        const dy = to.y - from.y;
+        // Boundary loops are clockwise: screen-top horizontal edges run right-to-left.
+        if (Math.abs(dy) >= 0.001 || dx >= 0) continue;
+        const pad = Math.min(cornerRadius * 0.72, Math.abs(dx) * 0.22);
+        g.moveTo(from.x - pad, from.y);
+        g.lineTo(to.x + pad, to.y);
+      }
     }
   }
 
@@ -1181,12 +1201,12 @@ export class BoardController {
 
       // A soft outer highlight plus a crisp white core matches the reference selection edge.
       g.strokeColor = new Color(255, 255, 255, 105);
-      g.lineWidth = Math.max(6, C * 0.1);
+      g.lineWidth = Math.max(1.2, C * 0.05);
       this.appendRoundedLoops(g, loops, C * 0.2);
       g.stroke();
 
       g.strokeColor = Color.WHITE;
-      g.lineWidth = Math.max(2.5, C * 0.043);
+      g.lineWidth = Math.max(1.1, C * 0.04);
       this.appendRoundedLoops(g, loops, C * 0.2);
       g.stroke();
       hl.setSiblingIndex(p.node.children.length - 1);
