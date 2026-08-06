@@ -175,18 +175,20 @@ piece_*
 ├─ shadow                    # Graphics：下沉偏移的深色厚边
 ├─ contentMask               # Mask.GRAPHICS_STENCIL
 │  └─ surface                # Graphics：拼块底色
-├─ picture                   # Mask.GRAPHICS_STENCIL，与 contentMask 同级
+├─ outline                   # Graphics：深色结构线 + 仅朝上边缘的常态高光
+├─ picture                   # Mask.GRAPHICS_STENCIL；同级顺序位于 outline 之后
 │  └─ image                  # 单张完整 Sprite，不再逐格拆 pictureCell
-├─ outline                   # Graphics：深色结构线 + 常态浅色高光
 └─ selectionOutline          # 仅拖动选中时临时创建，结束拖动即销毁
 ```
 
 - `shapeBoundaryLoops` 从 `Piece.cells` 生成正交多边形，并删除连续相邻格在直边上产生的同向共线点，避免格子接缝被误画成圆角折痕；`insetBoundaryLoops` 计算内缩轮廓，`appendRoundedLoops` 只处理真正的外圆角和内凹圆角。
 - `contentMask`、`picture` 和 `outline` 复用同一组内缩轮廓与圆角半径，避免图片裁剪边缘和可见描边不一致。
-- `picture` 必须使用 `Mask.Type.GRAPHICS_STENCIL`，并从 Mask 节点自身取得自动附加的 `Graphics`；stencil 按文档使用 `fillColor.fromHEX('#ff0000')` 后填充。颜色只参与 stencil 绘制，不作为最终可见颜色。
+- 常态浅色高光由 `appendTopHighlights` 只绘制朝上的水平边，不能沿完整轮廓描边，否则高窄拼块左侧会出现白色竖痕；选中态的完整白色轮廓不受此限制。
+- 常态深色轮廓宽度为 `max(1.2, cell × 0.025)`，顶部高光为 `max(1.1, cell × 0.016)`；选中态白色实线为 `max(1.1, cell × 0.04)`，外层柔光为 `max(1.2, cell × 0.05)`。
+- `picture` 与 `outline` 同级，但创建顺序位于 `outline` 之后，使图片渲染在轮廓之上；它必须使用 `Mask.Type.GRAPHICS_STENCIL`，并从 Mask 节点自身取得自动附加的 `Graphics`。stencil 按文档使用 `fillColor.fromHEX('#ff0000')` 后填充，颜色只参与 stencil 绘制，不作为最终可见颜色。
 - `placePiecePictureStencil` 只放置一个完整图片 Sprite，通过首个有效 `picIndex` 计算图片相对拼块的位置；当前图片缩放系数为 `0.86`。
 - 选中态对同一图片的每个碎片分别创建 `selectionOutline`，沿各自真实圆角轮廓绘制“半透明宽外光 + 实心白色细线”，并随碎片节点移动。
-- `shadow` 使用比可见表面略大的轮廓并向下偏移，负责参考图中的厚边；不要通过扩大图片或遮罩来模拟厚度。
+- `shadow` 与可见表面保持相同的横向轮廓，仅向下偏移形成底部厚边；不要向四周扩大 shadow，否则高窄拼块左侧会露出竖向侧壁痕迹。不要通过扩大图片或遮罩来模拟厚度。
 
 ### 4.4 `EnvHelpers.ts` — 环境机关
 

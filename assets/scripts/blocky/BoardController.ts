@@ -1,5 +1,5 @@
 import {
-  Color, EventTouch, Graphics, Label, Mask, Node, SpriteFrame, Tween, UIOpacity, UITransform,
+  Color, EventTouch, Graphics, Label, Mask, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform,
   Vec3, tween,
 } from 'cc';
 import { BOARD_MAX_H, BOARD_MAX_W, CELL } from '../utils/Constants';
@@ -507,7 +507,10 @@ export class BoardController {
     outline.stroke();
 
     if (matchable && pic) {
-      const sf = await ResCache.loadSprite(pictureResourcePath(pic.nameFilePicture));
+      const [sf, glassSf] = await Promise.all([
+        ResCache.loadSprite(pictureResourcePath(pic.nameFilePicture)),
+        ResCache.uiBr('RoundBoxGlass'),
+      ]);
       if (sf) {
         const pictureNode = makeNode('picture', node, pw, ph);
         const pictureMask = pictureNode.addComponent(Mask);
@@ -517,6 +520,9 @@ export class BoardController {
         pictureStencil.fillColor.fromHEX('#ff0000');
         this.appendRoundedLoops(pictureStencil, loops, cornerRadius);
         pictureStencil.fill();
+        if (glassSf) {
+          this.placePieceGlassFrame(pictureNode, glassSf, pw, ph);
+        }
         this.placePiecePictureStencil(
           pictureNode, sf, pic, cells, s.listIndexPicture, cx, cy, C,
         );
@@ -693,6 +699,18 @@ export class BoardController {
     }
   }
 
+  /** 九宫格玻璃顶光框：置于 picture 内、image 之下，随拼块包围盒拉伸 */
+  private placePieceGlassFrame(parent: Node, sf: SpriteFrame, pw: number, ph: number) {
+    sf.insetTop = 36;
+    sf.insetBottom = 8;
+    sf.insetLeft = 12;
+    sf.insetRight = 12;
+    const glass = makeNode('glassFrame', parent, pw, ph);
+    const sp = setSprite(glass, sf);
+    sp.type = Sprite.Type.SLICED;
+    sp.trim = false;
+  }
+
   private placePiecePictureStencil(
     parent: Node,
     sf: SpriteFrame,
@@ -724,6 +742,8 @@ export class BoardController {
     image.setPosition(imageX, imageY, 0);
     const sprite = setSprite(image, sf);
     sprite.trim = false;
+    const glass = parent.getChildByName('glassFrame');
+    if (glass) glass.setSiblingIndex(0);
   }
 
   private placePiecePicture(

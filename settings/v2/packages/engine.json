@@ -18,7 +18,7 @@
             "_value": false
           },
           "animation": {
-            "_value": true
+            "_value": false
           },
           "skeletal-animation": {
             "_value": false
@@ -36,7 +36,7 @@
             "_value": false
           },
           "rich-text": {
-            "_value": true
+            "_value": false
           },
           "mask": {
             "_value": true
@@ -79,7 +79,7 @@
             "_value": false
           },
           "physics-2d": {
-            "_value": true,
+            "_value": false,
             "_option": "physics-2d-box2d"
           },
           "physics-2d-box2d": {
@@ -98,13 +98,13 @@
             "_value": false
           },
           "intersection-2d": {
-            "_value": true
+            "_value": false
           },
           "primitive": {
             "_value": false
           },
           "profiler": {
-            "_value": true
+            "_value": false
           },
           "occlusion-query": {
             "_value": false
@@ -116,7 +116,7 @@
             "_value": false
           },
           "particle-2d": {
-            "_value": true
+            "_value": false
           },
           "audio": {
             "_value": true
@@ -149,11 +149,11 @@
             "_value": false
           },
           "spine": {
-            "_value": true,
+            "_value": false,
             "_option": "spine-3.8"
           },
           "spine-3.8": {
-            "_value": true,
+            "_value": false,
             "_flags": {
               "LOAD_SPINE_MANUALLY": false
             }
@@ -196,20 +196,13 @@
         "includeModules": [
           "2d",
           "affine-transform",
-          "animation",
           "audio",
           "base",
           "custom-pipeline",
           "gfx-webgl",
           "gfx-webgl2",
           "graphics",
-          "intersection-2d",
           "mask",
-          "particle-2d",
-          "physics-2d-box2d",
-          "profiler",
-          "rich-text",
-          "spine-3.8",
           "tween",
           "ui"
         ],
