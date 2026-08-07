@@ -1694,13 +1694,6 @@ export class BoardController {
     SoundMgr.play('match');
     const members = this.pieces.filter((p) =>
       p.alive && !p.inTunnel && !p.hiddenUnder && p.idPanelPicture === pic.id && p.matchable);
-    if (members.length) {
-      const xs = members.flatMap((p) => p.cells.map((c) => c.x));
-      const ys = members.flatMap((p) => p.cells.map((c) => c.y));
-      const cx = (Math.min(...xs) + Math.max(...xs)) / 2;
-      const cy = (Math.min(...ys) + Math.max(...ys)) / 2;
-      this.spawnMatchBurst(cx, cy);
-    }
     const hadKey = members.some((p) => hasMechanic(p.mechanic, MechanicType.Key));
     const topIds = members.map((p) => p.id);
     for (const p of members) {
@@ -1712,34 +1705,6 @@ export class BoardController {
     this.onPictureCounters();
     this.breakLayeredTops(topIds);
     this.cb.onPictureComplete?.(pic.id);
-  }
-
-  private spawnMatchBurst(gx: number, gy: number) {
-    const center = this.gridToLocal(gx, gy);
-    const colors = ['#fff59d', '#ffffff', '#ffeb3b', '#c8e6c9', '#e1bee7'];
-    const particleSize = Math.max(28, this.cell * 0.42);
-    for (let i = 0; i < 12; i++) {
-      const n = makeNode('matchBurst', this.root, particleSize, particleSize);
-      n.setPosition(center.x, center.y, 0);
-      n.setSiblingIndex(this.root.children.length - 1);
-      const g = n.addComponent(Graphics);
-      g.fillColor = colorFromHex(colors[i % colors.length]);
-      const r = Math.max(8, this.cell * 0.14) + (i % 3) * Math.max(3, this.cell * 0.05);
-      g.circle(0, 0, r);
-      g.fill();
-      const op = n.addComponent(UIOpacity);
-      op.opacity = 240;
-      const ang = (Math.PI * 2 * i) / 12 + Math.random() * 0.4;
-      const dist = this.cell * (0.55 + Math.random() * 0.75);
-      tween(n)
-        .parallel(
-          tween().to(0.32, { position: new Vec3(center.x + Math.cos(ang) * dist, center.y + Math.sin(ang) * dist, 0) }),
-          tween(op).to(0.32, { opacity: 0 }),
-          tween().to(0.32, { scale: new Vec3(0.35, 0.35, 1) }),
-        )
-        .call(() => { if (n.isValid) n.destroy(); })
-        .start();
-    }
   }
 
   private flyOut(p: Piece) {

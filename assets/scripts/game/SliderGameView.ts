@@ -1,5 +1,5 @@
 import {
-  _decorator, Node, Label, Graphics, Color, UITransform, tween, Vec3, UIOpacity,
+  _decorator, Node, Label, Graphics, Color, UITransform, tween, Vec3, UIOpacity, BlockInputEvents,
 } from 'cc';
 import { BoardController } from '../blocky/BoardController';
 import { DESIGN_H, DESIGN_W, MAX_LEVEL } from '../utils/Constants';
@@ -68,6 +68,13 @@ export class SliderGameView extends ViewBase {
     this.storyWinHandler = handler;
   }
 
+  /** 剧情 subview 叠在局内时屏蔽 SliderGame 触摸（棋盘在下层仍会抢点击） */
+  setStoryOverlayBlocked(block: boolean) {
+    const comp = this.node.getComponent(BlockInputEvents)
+      || this.node.addComponent(BlockInputEvents);
+    comp.enabled = block;
+  }
+
   getBoard(): BoardController | null {
     return this.board ?? null;
   }
@@ -116,6 +123,7 @@ export class SliderGameView extends ViewBase {
   protected onClose() {
     if (this.board) this.board.running = false;
     this.storyWinHandler = null;
+    this.setStoryOverlayBlocked(false);
   }
 
   private bindPrefab() {
@@ -308,7 +316,6 @@ export class SliderGameView extends ViewBase {
       if (this.progressHandlers) {
         this.progressHandlers.save(this.board.levelIndex + 1);
       }
-      this.hide();
       cb();
       return;
     }

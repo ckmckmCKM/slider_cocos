@@ -19,11 +19,11 @@ export class TipPopup extends PopupBase {
     }
   }
 
-  showTip(text: string) {
+  showTip(text: string, onClose?: () => void) {
     this.cancelAutoClose();
     this.bindNodes();
     if (this.textLabel) this.textLabel.string = text;
-    this.open();
+    this.open(onClose);
     this.scheduleOnce(this.onAutoClose, AUTO_CLOSE_SEC);
   }
 

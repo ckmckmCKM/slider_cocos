@@ -162,7 +162,7 @@ startLevel
 - **职责：** 实例化并切换 Lobby / Menu / Game / Story，协调导航与进度存档
 - **预制体：** `home/prefab/Lobby`、`home/prefab/Menu`；`game/prefab/SliderGame` **首次进局时**才实例化
 - **Game 挂载：** 大厅/选关 → Canvas；剧情 `gameGate` → `Story` 子节点，顺序 `bg` → `frameLayer` → **Game** → `subview` → …
-- **剧情联动：** 关闭 `subview` 时一并 `hide` Story 下的 Game（节点保留）；打开下一个 `subview` 不销毁 Game 节点
+- **剧情联动：** 剧情关卡通关后不立即 `hide` Game；`subview` 叠在 Game 之上，关闭 `subview` 时一并 `hide` Story 下的 Game（节点保留）
 - **存档：** `localStorage` key = `block_reveal_max`（`Constants.PROGRESS_KEY`）
 - **不碰棋盘逻辑**，棋盘由 `SliderGameView` 内 `BoardController` 驱动
 
@@ -273,6 +273,31 @@ ResCache.loadComPrefab()     // com bundle 预制体
 |------|------|
 | `ui/ViewBase.ts` | 全屏界面 `open` / `close` / `hide`（Lobby、Menu、SliderGame） |
 | `ui/PopupBase.ts` | 弹窗基类（Dialogue、Tip） |
+| `ui/PopupTemplate.ts` | `com/prefab/PopupTemplate` 模板组件（新建预制体时复制此 prefab） |
+
+#### UI 预制体模板：`PopupTemplate`（新建界面必读）
+
+**之后新建的预制体**（弹窗或全屏界面）一律以 `com/prefab/PopupTemplate.prefab` 为起点，**不要**再仿照 Lobby / Menu / SliderGame 的历史节点结构。
+
+| 项 | 说明 |
+|----|------|
+| 路径 | `assets/bundle/com/prefab/PopupTemplate.prefab` |
+| 根节点 | `UITransform` 1080×1920 + `Widget` 四边对齐 + `BlockInputEvents` |
+| 子节点 | `mask`（全屏半透明遮罩）→ `panel`（面板）→ `content`（**业务 UI 只挂在此下**） |
+| 弹窗脚本 | 复制 prefab → 改根节点名 → `content` 内搭 UI → 脚本 **继承 `PopupBase`**（`DialogueView`、`TipPopup`） |
+| 全屏脚本 | 同上复制模板 → 可 **隐藏 `mask`** 或透明化 → `panel` 拉满设计分辨率 → 脚本 **继承 `ViewBase`** |
+| 节点绑定 | `PopupBase` 会按名自动查找 `mask` / `panel` / `content`；也可在编辑器里拖 `@property` |
+| 放置 bundle | 弹窗放 `com/prefab/`；大厅放 `home/prefab/`；局内放 `game/prefab/` 等，**结构仍来自 PopupTemplate** |
+
+```text
+{YourView}
+├─ mask                 # 弹窗：半透明挡板；全屏：可 inactive 或 alpha=0
+└─ panel
+   └─ content            # ★ 按钮、列表、文案等业务节点一律在此下
+      └─ …
+```
+
+**已有预制体（历史）：** `Lobby` / `Menu` / `SliderGame` 为早期脚手架，仅维护不改骨架；**新界面不要按它们的层级抄。**
 
 ---
 
@@ -365,7 +390,7 @@ Local: gridToLocal(x,y) → ((x-cxm)*C, (y-cym)*C)
 - 仅检查当前网格位置及八个相邻位置；候选位置仍需通过 `canPlaceGroupAt` 碰撞检查与 `isPictureAssembledWith` 完整拼图校验。
 - 当前吸附距离为 **`cell × 0.2`**。进入阈值后立即把移动组的 `cells` 更新为候选位置，并用 `syncPieceNode` 对齐准确网格。
 - 自动吸附会清理白色选中描边、触摸圆环并将 `drag` 置空；随后到达的原生 `TOUCH_END` 不再重复结算。
-- 拼块先完成 `0.08s` 的缩放回弹，再调用 `onAfterMove`。因此 `completePicture` 的粒子与飞出动画一定发生在碎片已对齐之后。
+- 拼块先完成 `0.08s` 的缩放回弹，再调用 `onAfterMove`。因此 `completePicture` 的飞出动画一定发生在碎片已对齐之后。
 - 回弹期间 `autoCompleting=true`，`onDown` 会拒绝新触摸；新关卡 `clear()` 必须复位该状态。
 
 ### 7.2 拖动与碰撞流程
@@ -446,6 +471,8 @@ node tools/validate-levels.mjs 1 100
 | `gen-home-prefabs.mjs` | `home/prefab/Lobby.prefab`、`Menu.prefab` |
 | `gen-slider-game-prefab.mjs` | `game/prefab/SliderGame.prefab` |
 
+**新建 UI 预制体：** 优先在编辑器中 **复制 `com/prefab/PopupTemplate`**（见 §4.6「UI 预制体模板」），不要用 gen 脚本从零搭界面骨架。gen 脚本仅覆盖上述历史预制体的首次生成。
+
 共用逻辑见 `tools/prefab-common.mjs`。
 
 #### 重要：不覆盖已有预制体
@@ -498,7 +525,7 @@ node tools/gen-slider-game-prefab.mjs
 5. **双层 overlap 是合法的** — 同一格可有 hiddenUnder 下层块
 6. **不要做 XY 对调 listPos** — 会破坏 picture index 与格子的对应关系
 7. **源关卡偶发重复 shape** — Parser 已 dedupe + 重分配 id；极端关仍建议跑 validate
-8. **UI 以预制体为主** — Lobby/Menu/SliderGame 为 bundle 预制体 + View 脚本；改结构编辑 prefab 或 `tools/gen-*.mjs`，改交互去 `LobbyView` / `MenuView` / `SliderGameView`；通用绘制与绑定用 `UIFactory`
+8. **UI 以预制体为主** — 已有 Lobby/Menu/SliderGame 为历史脚手架；**新建**弹窗/全屏界面须复制 `com/prefab/PopupTemplate`。改交互去对应 `*View.ts`；通用绘制用 `UIFactory`
 9. **拖动范围不能按初始行列缓存** — 拼块可能先沿一轴绕开障碍，再沿另一轴继续移动；碰撞必须基于当前 `cells` 逐步判定
 10. **图片遮罩不要拆成逐格矩形** — 活跃实现是 `picture` 节点上的单个 `GRAPHICS_STENCIL`，轮廓必须复用 `makePiece` 的 rounded loops
 
@@ -527,8 +554,9 @@ node tools/gen-slider-game-prefab.mjs
 
 ### 修改 UI
 
-- **大厅 / 选关：** 在编辑器中编辑 `home/prefab/*.prefab`；逻辑在 `LobbyView` / `MenuView`（不要用 gen 脚本覆盖已有 prefab）
-- **局内：** 编辑 `game/prefab/SliderGame.prefab`，逻辑在 `SliderGameView`
+- **新建弹窗 / 全屏界面：** 复制 `com/prefab/PopupTemplate.prefab` → 在 `content` 下搭 UI → 脚本继承 `PopupBase` 或 `ViewBase`（见 §4.6）
+- **大厅 / 选关（已有）：** 在编辑器中编辑 `home/prefab/*.prefab`；逻辑在 `LobbyView` / `MenuView`（不要用 gen 脚本覆盖已有 prefab）
+- **局内（已有）：** 编辑 `game/prefab/SliderGame.prefab`，逻辑在 `SliderGameView`
 - **通用绘制 / 绑定：** 使用 `UIFactory`（`mustChild`、`paintRoundButton`、`bindTouchEnd` 等），不要在各 View 重复实现
 - **棋盘内视觉：** 改 `blocky/BoardController` / `EnvHelpers`
 
@@ -571,6 +599,7 @@ UIFactory
 | 2026-08-06 | 核心玩法迁入 **game Asset Bundle**；ResCache/SoundMgr 改为 bundle 加载 |
 | 2026-08-07 | **home bundle**：Lobby/Menu 预制体；`UIFactory` 统一 UI 工具；预制体按钮无美术图时用内置 `default_btn_normal` + `txt` Label |
 | 2026-08-07 | `setSprite` 默认关闭 Sprite **Trim**（`trim` / `isTrimmedMode`） |
+| 2026-08-07 | **UI 预制体规范**：新建弹窗/全屏界面统一复制 `com/prefab/PopupTemplate`（`mask` + `panel` + `content`） |
 
 ---
 

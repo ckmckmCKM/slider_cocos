@@ -29,7 +29,7 @@ export class GameApp extends Component {
     this.maxLevel = this.loadProgress();
     await SoundMgr.init(this.node);
     await this.buildUI();
-    this.showLobby();
+    void this.enterStory('story1');
   }
 
   update(dt: number) {
@@ -56,6 +56,7 @@ export class GameApp extends Component {
       onStory: () => void this.enterStory('story1'),
     });
     await this.lobbyView.setup();
+    this.lobbyView.hide();
 
     const menuPrefab = await ResCache.loadHomePrefab('prefab/Menu');
     if (!menuPrefab) throw new Error('home/prefab/Menu missing');
@@ -88,6 +89,11 @@ export class GameApp extends Component {
     g.fill();
     this.storyPlayer = this.storyRoot.addComponent(StoryPlayer);
     this.storyPlayer.setSubviewCloseHandler(() => this.hideStoryGameIfMounted());
+    this.storyPlayer.setStoryGameOverlayHandler((blocked) => {
+      if (this.gameNode?.parent === this.storyRoot) {
+        this.sliderGame?.setStoryOverlayBlocked(blocked);
+      }
+    });
   }
 
   /** 首次需要时再创建 SliderGame 预制体 */
@@ -139,6 +145,7 @@ export class GameApp extends Component {
 
   /** subview 关闭时隐藏挂在 Story 下的 Game（保留节点，供下次 subview 复用） */
   private hideStoryGameIfMounted() {
+    this.sliderGame?.setStoryOverlayBlocked(false);
     if (this.gameNode?.parent === this.storyRoot) {
       this.sliderGame?.hide();
     }
@@ -189,7 +196,6 @@ export class GameApp extends Component {
   private async enterGameFromStory(level: number, onWin: () => void) {
     const game = await this.ensureSliderGameOnStory();
     game.setStoryWinHandler(() => {
-      game.hide();
       onWin();
     });
     const ok = await game.startLevel(level);
@@ -200,6 +206,7 @@ export class GameApp extends Component {
     }
     this.lobbyView.hide();
     this.menuView.hide();
+    game.setStoryOverlayBlocked(false);
     game.open();
   }
 

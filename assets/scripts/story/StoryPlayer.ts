@@ -4,7 +4,7 @@ import {
 import { DialogueView } from '../dialogue/DialogueView';
 import { DESIGN_H, DESIGN_W } from '../utils/Constants';
 import { ResCache } from '../utils/ResCache';
-import { fullWidget, makeNode, setSprite, disableSpriteTrimSubtree } from '../utils/UIFactory';
+import { fullWidget, makeNode, setSprite, disableSpriteTrimSubtree, bindTouchEnd } from '../utils/UIFactory';
 import { TipPopup } from '../ui/TipPopup';
 import {
   isStoryDialogue, isStoryGameGate, isStorySubview,
@@ -44,6 +44,7 @@ export class StoryPlayer extends Component {
   private _gateStep: StoryStepGameGate | null = null;
   private _onGameRequest: ((level: number, onWin: () => void) => void) | null = null;
   private _onSubviewClose: (() => void) | null = null;
+  private _onStoryGameOverlay: ((blocked: boolean) => void) | null = null;
   private _onFinished: (() => void) | null = null;
 
   onLoad() {
@@ -80,6 +81,12 @@ export class StoryPlayer extends Component {
     this._subIcon = makeNode('icon', this._subRoot, DESIGN_W, DESIGN_H);
     setSprite(this._subIcon, null);
 
+    const subBlock = this._subRoot.getComponent(BlockInputEvents) || this._subRoot.addComponent(BlockInputEvents);
+    subBlock.enabled = true;
+    bindTouchEnd(this._subRoot, () => this.onSubviewTap());
+
+    bindTouchEnd(this._frameLayer, () => this.onFrameTap());
+
     disableSpriteTrimSubtree(this._frameLayer);
     disableSpriteTrimSubtree(this._subRoot);
   }
@@ -102,6 +109,19 @@ export class StoryPlayer extends Component {
   /** 关闭 subview 时回调（用于一并关闭剧情内 Game） */
   setSubviewCloseHandler(handler: (() => void) | null) {
     this._onSubviewClose = handler;
+  }
+
+  /** subview 打开/关闭时屏蔽下层 Story 内 Game 的触摸 */
+  setStoryGameOverlayHandler(handler: ((blocked: boolean) => void) | null) {
+    this._onStoryGameOverlay = handler;
+  }
+
+  private setStoryGameOverlayBlocked(blocked: boolean) {
+    if (this._onStoryGameOverlay) this._onStoryGameOverlay(blocked);
+  }
+
+  private hideMountedStoryGame() {
+    if (this._onSubviewClose) this._onSubviewClose();
   }
 
   /** Game 节点应插入的位置：frameLayer 与 subview 之间 */
@@ -160,11 +180,28 @@ export class StoryPlayer extends Component {
     Tween.stopAllByTarget(this._subOpacity);
     this._subRoot.active = false;
     this._subOpacity.opacity = 255;
-    if (this._onSubviewClose) this._onSubviewClose();
+    this.setStoryGameOverlayBlocked(false);
+    this.hideMountedStoryGame();
   }
 
   private onTap(e: EventTouch) {
     e.propagationStopped = true;
+    this.onStoryAdvance();
+  }
+
+  /** subview 全屏挡板：点击继续（避免触摸落到下层 Game） */
+  private onSubviewTap() {
+    if (!this._subRoot.active) return;
+    this.onStoryAdvance();
+  }
+
+  /** 一级图点击继续（subview 未打开时） */
+  private onFrameTap() {
+    if (this._subRoot.active) return;
+    this.onStoryAdvance();
+  }
+
+  private onStoryAdvance() {
     if (this._busy || !this.node.active) return;
     if (this._dialogueView?.isOpen()) return;
     if (this._tipPopup?.isOpen()) return;
@@ -318,6 +355,7 @@ export class StoryPlayer extends Component {
     this._frameLayer.active = true;
     this.frontFrame().node.active = true;
     this._subRoot.active = true;
+    this.setStoryGameOverlayBlocked(true);
 
     const [bgSf, iconSf] = await Promise.all([
       ResCache.storyStepSprite(this._storyName, step.bg),
@@ -331,6 +369,14 @@ export class StoryPlayer extends Component {
     this._subOpacity.opacity = 0;
     await this.fadeOpacity(this._subOpacity, 255);
     disableSpriteTrimSubtree(this._subRoot);
+    this.riseSubviewOverlay();
+  }
+
+  /** subview 叠在 Game 之上并优先接收点击 */
+  private riseSubviewOverlay() {
+    if (!this._subRoot.active) return;
+    this._subRoot.setSiblingIndex(this.node.children.length - 1);
+    this.syncOverlaySiblingOrder();
   }
 
   /** 一级界面 + 游戏入口：通关后继续剧情 */
@@ -539,12 +585,15 @@ export class StoryPlayer extends Component {
     const step = this._steps[nextIndex];
     if (isStorySubview(step)) {
       await this.presentSubview(step);
-    } else if (isStoryGameGate(step)) {
-      await this.presentGameGate(step);
-    } else if (isStoryDialogue(step)) {
-      await this.presentDialogue(step);
     } else {
-      await this.crossfadeFrame(step as string);
+      this.hideMountedStoryGame();
+      if (isStoryGameGate(step)) {
+        await this.presentGameGate(step);
+      } else if (isStoryDialogue(step)) {
+        await this.presentDialogue(step);
+      } else {
+        await this.crossfadeFrame(step as string);
+      }
     }
   }
 
@@ -616,6 +665,40 @@ export class StoryPlayer extends Component {
   }
 
   private finish() {
+    void this.finishWithComingSoon();
+  }
+
+  /** 当前剧情播完且无下一剧情时，弹「敬请期待」后再结束 */
+  private async finishWithComingSoon() {
+    if (this._busy) return;
+    this._busy = true;
+
+    const nextName = this.nextStoryName(this._storyName);
+    if (nextName) {
+      const nextCfg = await ResCache.loadStoryConfig(nextName).catch(() => null);
+      if (nextCfg?.steps?.length) {
+        this._busy = false;
+        await this.play(nextName, this._onFinished || undefined);
+        return;
+      }
+    }
+
+    const tip = await this.ensureTipPopup();
+    if (!tip) {
+      this.doFinish();
+      return;
+    }
+    tip.showTip('敬请期待', () => this.doFinish());
+    this.syncOverlaySiblingOrder();
+  }
+
+  private nextStoryName(current: string): string | null {
+    const m = current.match(/^story(\d+)$/i);
+    if (!m) return null;
+    return `story${Number(m[1]) + 1}`;
+  }
+
+  private doFinish() {
     const cb = this._onFinished;
     this.hide();
     if (cb) cb();

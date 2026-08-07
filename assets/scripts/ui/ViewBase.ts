@@ -4,6 +4,7 @@ const { ccclass } = _decorator;
 
 /**
  * 全屏界面基类：统一 open / close / hide（关卡、剧情等）。
+ * 预制体结构请参照 com/prefab/PopupTemplate（mask + panel + content），脚本继承 ViewBase。
  * 弹窗类请用 PopupBase。
  */
 @ccclass('ViewBase')

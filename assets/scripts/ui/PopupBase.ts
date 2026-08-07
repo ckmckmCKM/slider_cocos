@@ -4,7 +4,8 @@ const { ccclass, property } = _decorator;
 
 /**
  * 弹窗基类：统一 open / close / hide。
- * 预制体结构建议参照 com/prefab/PopupTemplate（mask + panel + content）。
+ * 预制体结构请参照 com/prefab/PopupTemplate（mask + panel + content）。
+ * 全屏界面同样复制该模板，脚本改用 ViewBase。
  */
 @ccclass('PopupBase')
 export class PopupBase extends Component {
