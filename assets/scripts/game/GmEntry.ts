@@ -14,23 +14,27 @@ const GM_BTN_H = 72;
 const GM_BTN_POS_KEY = 'gm_btn_pos';
 const DRAG_CLICK_THRESHOLD = 10;
 
+export interface GmEntryHandlers {
+  onOpenMenu: () => void;
+}
+
 /**
  * GM 入口：挂在 Main 场景 Canvas/root 下，始终置于 root 子节点最上层。
- * GM 按钮可拖动；松手未拖动时打开弹窗。
+ * GM 按钮可拖动；松手未拖动时按需打开 GmPopup。
  */
 @ccclass('GmEntry')
 export class GmEntry extends Component {
   private _gmBtn: Node | null = null;
   private _gmPopup: GmPopup | null = null;
-  private _onJump: ((level: number) => void) | null = null;
+  private _onOpenMenu: (() => void) | null = null;
   private _dragOffsetX = 0;
   private _dragOffsetY = 0;
   private _touchStartUiX = 0;
   private _touchStartUiY = 0;
   private _touchMoved = false;
 
-  async setup(onJump: (level: number) => void): Promise<void> {
-    this._onJump = onJump;
+  async setup(handlers: GmEntryHandlers): Promise<void> {
+    this._onOpenMenu = handlers.onOpenMenu;
     if (this._gmBtn) return;
 
     const switches = await GameSwitches.load();
@@ -47,20 +51,27 @@ export class GmEntry extends Component {
       this._gmBtn.setPosition(DESIGN_W / 2 - 90, DESIGN_H / 2 - 200, 0);
     }
     this._gmBtn.active = switches.showGm;
-
-    this._gmPopup = GmPopup.create(this.node);
-    this._gmPopup.setJumpHandler((level) => {
-      this._onJump?.(level);
-    });
     this.bringToFront();
   }
 
+  closePopupIfOpen() {
+    if (this._gmPopup?.isOpen()) this._gmPopup.close();
+  }
+
   onDestroy() {
-    if (!this._gmBtn) return;
-    this._gmBtn.off(Node.EventType.TOUCH_START, this.onGmBtnTouchStart, this);
-    this._gmBtn.off(Node.EventType.TOUCH_MOVE, this.onGmBtnTouchMove, this);
-    this._gmBtn.off(Node.EventType.TOUCH_END, this.onGmBtnTouchEnd, this);
-    this._gmBtn.off(Node.EventType.TOUCH_CANCEL, this.onGmBtnTouchEnd, this);
+    this.unbindGmBtnDrag();
+    this._gmBtn = null;
+    this._gmPopup = null;
+    this._onOpenMenu = null;
+  }
+
+  private unbindGmBtnDrag() {
+    const btn = this._gmBtn;
+    if (!btn || !btn.isValid) return;
+    btn.off(Node.EventType.TOUCH_START, this.onGmBtnTouchStart, this);
+    btn.off(Node.EventType.TOUCH_MOVE, this.onGmBtnTouchMove, this);
+    btn.off(Node.EventType.TOUCH_END, this.onGmBtnTouchEnd, this);
+    btn.off(Node.EventType.TOUCH_CANCEL, this.onGmBtnTouchEnd, this);
   }
 
   private bindGmBtnDrag(btn: Node) {
@@ -102,7 +113,7 @@ export class GmEntry extends Component {
       return;
     }
     SoundMgr.play('click');
-    this.openGm();
+    void this.openGm();
   }
 
   private uiToRootLocal(uiX: number, uiY: number): Vec3 {
@@ -139,22 +150,37 @@ export class GmEntry extends Component {
     } catch { /* */ }
   }
 
-  private openGm() {
-    if (!this._gmPopup) return;
+  private async ensureGmPopup(): Promise<GmPopup> {
+    if (this._gmPopup) return this._gmPopup;
+    this._gmPopup = GmPopup.create(this.node);
+    this._gmPopup.setOpenMenuHandler(() => {
+      this._onOpenMenu?.();
+    });
     this.bringToFront();
-    this._gmPopup.open();
+    return this._gmPopup;
+  }
+
+  private async openGm() {
+    const popup = await this.ensureGmPopup();
+    this.bringToFront();
+    popup.open();
   }
 
   /** 保证 GM 弹窗与按钮在 root 最上层 */
   bringToFront() {
+    if (!this.node?.isValid) return;
     const parent = this.node;
-    if (!this._gmPopup) return;
     const top = parent.children.length - 1;
-    this._gmPopup.node.setSiblingIndex(top);
-    if (this._gmBtn) this._gmBtn.setSiblingIndex(Math.max(0, top - 1));
+    if (this._gmPopup?.node?.isValid) {
+      this._gmPopup.node.setSiblingIndex(top);
+      if (this._gmBtn?.isValid) this._gmBtn.setSiblingIndex(Math.max(0, top - 1));
+    } else if (this._gmBtn?.isValid) {
+      this._gmBtn.setSiblingIndex(top);
+    }
   }
 
   lateUpdate() {
+    if (!this.node?.isValid) return;
     this.bringToFront();
   }
 }

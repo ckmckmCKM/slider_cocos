@@ -2,7 +2,7 @@ import {
   _decorator, Node, Label, Graphics, Color, UITransform, tween, Vec3, UIOpacity, BlockInputEvents,
 } from 'cc';
 import { BoardController } from '../blocky/BoardController';
-import { DESIGN_H, DESIGN_W, MAX_LEVEL } from '../utils/Constants';
+import { DESIGN_H, DESIGN_W } from '../utils/Constants';
 import { colorFromHex } from '../utils/Helpers';
 import { ResCache } from '../utils/ResCache';
 import { SoundMgr } from '../utils/SoundMgr';
@@ -87,7 +87,8 @@ export class SliderGameView extends ViewBase {
   }
 
   async startLevel(idx: number): Promise<boolean> {
-    if (idx < 1 || idx > MAX_LEVEL) {
+    const cap = ResCache.maxBrLevel();
+    if (idx < 1 || idx > cap) {
       this.showToast('没有更多关卡了');
       return false;
     }

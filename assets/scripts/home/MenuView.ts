@@ -1,5 +1,5 @@
 import { _decorator, Node, Label } from 'cc';
-import { DESIGN_H, MAX_LEVEL } from '../utils/Constants';
+import { DESIGN_H } from '../utils/Constants';
 import { SoundMgr } from '../utils/SoundMgr';
 import {
   addLabel, bindTouchEnd, makeNode, mustChild, mustLabel, paintRoundCell,
@@ -14,6 +14,7 @@ export interface MenuHandlers {
   onEnterLevel: (level: number) => void;
   onLockedLevel: () => void;
   getMaxLevel: () => number;
+  getTotalLevels: () => number;
 }
 
 /**
@@ -46,7 +47,8 @@ export class MenuView extends ViewBase {
       }
     });
     bindTouchEnd(mustChild(this.node, 'pager/next', OWNER), () => {
-      const maxPage = Math.ceil(MAX_LEVEL / this.pageSize) - 1;
+      const total = this.totalLevels();
+      const maxPage = Math.max(0, Math.ceil(total / this.pageSize) - 1);
       if (this.menuPage < maxPage) {
         this.menuPage++;
         this.refreshLevelGrid();
@@ -66,12 +68,19 @@ export class MenuView extends ViewBase {
   protected onOpen() {
     const progress = this.handlers?.getMaxLevel() ?? 1;
     this.menuPage = Math.floor((progress - 1) / this.pageSize);
+    const maxPage = Math.max(0, Math.ceil(this.totalLevels() / this.pageSize) - 1);
+    this.menuPage = Math.min(this.menuPage, maxPage);
     this.refreshLevelGrid();
+  }
+
+  private totalLevels(): number {
+    return Math.max(0, this.handlers?.getTotalLevels() ?? 0);
   }
 
   refreshLevelGrid() {
     if (!this.grid) return;
     this.grid.removeAllChildren();
+    const total = this.totalLevels();
     const maxLevel = this.handlers?.getMaxLevel() ?? 1;
     const cols = 5;
     const cellW = 158;
@@ -80,8 +89,10 @@ export class MenuView extends ViewBase {
     const startX = -((cols - 1) * (cellW + gap)) / 2;
     const startY = (DESIGN_H - 518) / 2 - 29;
     const from = this.menuPage * this.pageSize + 1;
-    const to = Math.min(MAX_LEVEL, from + this.pageSize - 1);
-    if (this.pageLbl) this.pageLbl.string = `${from}-${to} / ${MAX_LEVEL}`;
+    const to = Math.min(total, from + this.pageSize - 1);
+    if (this.pageLbl) {
+      this.pageLbl.string = total > 0 ? `${from}-${to} / ${total}` : '0 / 0';
+    }
 
     for (let idx = from; idx <= to; idx++) {
       const i = idx - from;

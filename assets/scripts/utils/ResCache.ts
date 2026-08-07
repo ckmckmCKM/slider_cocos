@@ -11,7 +11,8 @@ export class ResCache {
   private static _brLevels = new Map<number, LevelConfig>();
   private static _sf: Record<string, SpriteFrame> = {};
   private static _prefab: Record<string, Prefab> = {};
-  private static _maxBrLevel = 650;
+  private static _maxBrLevel = 0;
+  private static _brCatalogReady = false;
   private static _gameBundle: AssetManager.Bundle | null = null;
   private static _gameBundleLoading: Promise<AssetManager.Bundle> | null = null;
   private static _comBundle: AssetManager.Bundle | null = null;
@@ -23,6 +24,20 @@ export class ResCache {
   private static _storyJson: Record<string, StoryConfig> = {};
 
   static maxBrLevel() { return this._maxBrLevel; }
+
+  /** 扫描 game bundle 内 levels_br 目录，得到实际关卡总数（最大 Lv 编号） */
+  static async ensureBrLevelCatalog(): Promise<void> {
+    if (this._brCatalogReady) return;
+    const bundle = await this.loadGameBundle();
+    const infos = bundle.getDirWithPath('levels_br', TextAsset);
+    let max = 0;
+    for (const info of infos) {
+      const m = info.path.match(/Lv_(\d+)/i);
+      if (m) max = Math.max(max, parseInt(m[1], 10));
+    }
+    this._maxBrLevel = max;
+    this._brCatalogReady = true;
+  }
 
   /** 加载 game Asset Bundle（关卡 / 揭图 / 局内 UI / 音效） */
   static loadGameBundle(): Promise<AssetManager.Bundle> {
