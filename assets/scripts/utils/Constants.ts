@@ -61,3 +61,5 @@ export const BOARD_MAX_H = 1120;
 export const EPS = 0.02;
 export const PROGRESS_KEY = 'block_reveal_max';
 export const MAX_LEVEL = 650;
+/** 已接入的剧情 bundle 名（按播放顺序）；新增 story2 时在此追加 */
+export const STORY_ORDER = ['story1'];

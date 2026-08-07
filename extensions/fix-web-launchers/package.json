@@ -1,0 +1,12 @@
+{
+  "package_version": 2,
+  "name": "fix-web-launchers",
+  "version": "1.0.0",
+  "author": "slider_cocos",
+  "editor": ">=3.8.0",
+  "description": "web-mobile 构建后写入无 MD5 后缀的启动 bat",
+  "main": "./main.js",
+  "contributions": {
+    "builder": "./builder.js"
+  }
+}

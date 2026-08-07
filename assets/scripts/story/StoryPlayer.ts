@@ -2,9 +2,12 @@ import {
   _decorator, BlockInputEvents, Component, EventTouch, instantiate, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, tween,
 } from 'cc';
 import { DialogueView } from '../dialogue/DialogueView';
-import { DESIGN_H, DESIGN_W } from '../utils/Constants';
+import { GmPopup } from '../game/GmPopup';
+import { DESIGN_H, DESIGN_W, STORY_ORDER } from '../utils/Constants';
+import { GameSwitches } from '../utils/GameSwitches';
 import { ResCache } from '../utils/ResCache';
-import { fullWidget, makeNode, setSprite, disableSpriteTrimSubtree, bindTouchEnd } from '../utils/UIFactory';
+import { SoundMgr } from '../utils/SoundMgr';
+import { fullWidget, makeButton, makeNode, setSprite, disableSpriteTrimSubtree, bindTouchEnd } from '../utils/UIFactory';
 import { TipPopup } from '../ui/TipPopup';
 import {
   isStoryDialogue, isStoryGameGate, isStorySubview,
@@ -46,6 +49,9 @@ export class StoryPlayer extends Component {
   private _onSubviewClose: (() => void) | null = null;
   private _onStoryGameOverlay: ((blocked: boolean) => void) | null = null;
   private _onFinished: (() => void) | null = null;
+  private _gmBtn: Node | null = null;
+  private _gmPopup: GmPopup | null = null;
+  private _onGmJump: ((level: number) => void) | null = null;
 
   onLoad() {
     const block = this.node.getComponent(BlockInputEvents) || this.node.addComponent(BlockInputEvents);
@@ -114,6 +120,42 @@ export class StoryPlayer extends Component {
   /** subview 打开/关闭时屏蔽下层 Story 内 Game 的触摸 */
   setStoryGameOverlayHandler(handler: ((blocked: boolean) => void) | null) {
     this._onStoryGameOverlay = handler;
+  }
+
+  /** GM 入口挂在 Story 下；显隐由 switches.showGm 控制 */
+  async setupGm(onJump: (level: number) => void): Promise<void> {
+    this._onGmJump = onJump;
+    if (this._gmBtn) return;
+
+    const switches = await GameSwitches.load();
+    this._gmBtn = makeButton(this.node, 'gmBtn', 120, 72, 'GM', () => {
+      SoundMgr.play('click');
+      this.openGm();
+    });
+    this._gmBtn.setPosition(DESIGN_W / 2 - 90, DESIGN_H / 2 - 200, 0);
+    this._gmBtn.active = switches.showGm;
+
+    this._gmPopup = GmPopup.create(this.node);
+    this._gmPopup.setJumpHandler((level) => {
+      this._onGmJump?.(level);
+    });
+    this.bringGmToFront();
+  }
+
+  private openGm() {
+    if (!this._gmPopup) return;
+    this.bringGmToFront();
+    this._gmPopup.open();
+  }
+
+  private bringGmToFront() {
+    if (this._gmPopup?.isOpen()) {
+      this._gmPopup.node.setSiblingIndex(this.node.children.length - 1);
+      if (this._gmBtn) this._gmBtn.setSiblingIndex(this.node.children.length - 2);
+      return;
+    }
+    if (this._gmPopup) this._gmPopup.node.setSiblingIndex(this.node.children.length - 1);
+    if (this._gmBtn) this._gmBtn.setSiblingIndex(this.node.children.length - 1);
   }
 
   private setStoryGameOverlayBlocked(blocked: boolean) {
@@ -470,7 +512,7 @@ export class StoryPlayer extends Component {
     btn.setSiblingIndex(1);
   }
 
-  /** gameGateLayer 在 Tip 之上（提示不挡住游戏入口） */
+  /** gameGateLayer 在 Tip 之上（提示不挡住游戏入口）；GM 保持最前 */
   private syncOverlaySiblingOrder() {
     const tipNode = this._tipPopup?.node;
     const gateNode = this._gateRoot;
@@ -485,6 +527,7 @@ export class StoryPlayer extends Component {
     } else if (tipOnTree) {
       tipNode!.setSiblingIndex(this.node.children.length - 1);
     }
+    this.bringGmToFront();
   }
 
   private hideGameGateButton() {
@@ -668,7 +711,7 @@ export class StoryPlayer extends Component {
     void this.finishWithComingSoon();
   }
 
-  /** 当前剧情播完且无下一剧情时，弹「敬请期待」后再结束 */
+  /** 当前剧情播完：有下一章则续播，否则弹提示并停留（不跳转大厅） */
   private async finishWithComingSoon() {
     if (this._busy) return;
     this._busy = true;
@@ -684,23 +727,20 @@ export class StoryPlayer extends Component {
     }
 
     const tip = await this.ensureTipPopup();
-    if (!tip) {
-      this.doFinish();
-      return;
+    if (tip) {
+      tip.showTip('敬请期待', () => {
+        this._busy = false;
+      });
+      this.syncOverlaySiblingOrder();
+    } else {
+      this._busy = false;
     }
-    tip.showTip('敬请期待', () => this.doFinish());
-    this.syncOverlaySiblingOrder();
   }
 
   private nextStoryName(current: string): string | null {
-    const m = current.match(/^story(\d+)$/i);
-    if (!m) return null;
-    return `story${Number(m[1]) + 1}`;
-  }
-
-  private doFinish() {
-    const cb = this._onFinished;
-    this.hide();
-    if (cb) cb();
+    // 只串联 STORY_ORDER 中已有的剧情，避免探测不存在的 story2 刷预览错误
+    const i = STORY_ORDER.indexOf(current);
+    if (i < 0 || i >= STORY_ORDER.length - 1) return null;
+    return STORY_ORDER[i + 1];
   }
 }

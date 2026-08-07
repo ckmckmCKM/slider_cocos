@@ -6,6 +6,7 @@ import { colorFromHex } from '../utils/Helpers';
 import { ResCache } from '../utils/ResCache';
 import { SoundMgr } from '../utils/SoundMgr';
 import { fullWidget, makeNode } from '../utils/UIFactory';
+import { UIRootAdapter } from '../ui/UIRootAdapter';
 import { StoryPlayer } from '../story/StoryPlayer';
 import { SliderGameView } from './SliderGameView';
 import { LobbyView } from '../home/LobbyView';
@@ -15,6 +16,7 @@ const { ccclass } = _decorator;
 
 @ccclass('GameApp')
 export class GameApp extends Component {
+  private uiRoot!: Node;
   private lobbyView!: LobbyView;
   private menuView!: MenuView;
   private gameNode: Node | null = null;
@@ -25,7 +27,8 @@ export class GameApp extends Component {
   private maxLevel = 1;
 
   async onLoad() {
-    view.setDesignResolutionSize(DESIGN_W, DESIGN_H, ResolutionPolicy.SHOW_ALL);
+    // FIXED_WIDTH：宽铺满，长屏上下不再留黑边（SHOW_ALL 会 letterbox）
+    view.setDesignResolutionSize(DESIGN_W, DESIGN_H, ResolutionPolicy.FIXED_WIDTH);
     this.maxLevel = this.loadProgress();
     await SoundMgr.init(this.node);
     await this.buildUI();
@@ -36,18 +39,37 @@ export class GameApp extends Component {
     this.sliderGame?.tick(dt);
   }
 
+  private resolveUiRoot(): Node {
+    let root = this.node.getChildByName('root');
+    if (!root) {
+      const cam = this.node.getChildByName('Camera');
+      root = cam?.getChildByName('root') ?? null;
+      if (root) root.setParent(this.node);
+    }
+    if (!root) {
+      root = makeNode('root', this.node, DESIGN_W, DESIGN_H);
+    }
+    let adapter = root.getComponent(UIRootAdapter);
+    if (!adapter) adapter = root.addComponent(UIRootAdapter);
+    adapter.applyFit();
+    return root;
+  }
+
   private async buildUI() {
     const canvas = this.node;
     let ut = canvas.getComponent(UITransform);
     if (!ut) ut = canvas.addComponent(UITransform);
-    ut.setContentSize(DESIGN_W, DESIGN_H);
+    const vs = view.getVisibleSize();
+    ut.setContentSize(vs.width, vs.height);
     fullWidget(canvas);
+
+    this.uiRoot = this.resolveUiRoot();
 
     const lobbyPrefab = await ResCache.loadHomePrefab('prefab/Lobby');
     if (!lobbyPrefab) throw new Error('home/prefab/Lobby missing');
     const lobbyNode = instantiate(lobbyPrefab);
     lobbyNode.name = 'Lobby';
-    canvas.addChild(lobbyNode);
+    this.uiRoot.addChild(lobbyNode);
     fullWidget(lobbyNode);
     this.lobbyView = lobbyNode.getComponent(LobbyView) || lobbyNode.addComponent(LobbyView);
     this.lobbyView.setHandlers({
@@ -62,7 +84,7 @@ export class GameApp extends Component {
     if (!menuPrefab) throw new Error('home/prefab/Menu missing');
     const menuNode = instantiate(menuPrefab);
     menuNode.name = 'Menu';
-    canvas.addChild(menuNode);
+    this.uiRoot.addChild(menuNode);
     fullWidget(menuNode);
     menuNode.active = false;
     this.menuView = menuNode.getComponent(MenuView) || menuNode.addComponent(MenuView);
@@ -78,7 +100,7 @@ export class GameApp extends Component {
     });
     await this.menuView.setup();
 
-    this.storyRoot = makeNode('Story', canvas, DESIGN_W, DESIGN_H);
+    this.storyRoot = makeNode('Story', this.uiRoot, DESIGN_W, DESIGN_H);
     fullWidget(this.storyRoot);
     this.storyRoot.active = false;
     const storyBg = makeNode('bg', this.storyRoot, DESIGN_W, DESIGN_H);
@@ -93,6 +115,9 @@ export class GameApp extends Component {
       if (this.gameNode?.parent === this.storyRoot) {
         this.sliderGame?.setStoryOverlayBlocked(blocked);
       }
+    });
+    await this.storyPlayer.setupGm((level) => {
+      void this.enterGame(level);
     });
   }
 
@@ -133,7 +158,7 @@ export class GameApp extends Component {
 
   private async ensureSliderGameOnCanvas(): Promise<SliderGameView> {
     const game = await this.ensureSliderGame();
-    this.mountSliderGame(this.node);
+    this.mountSliderGame(this.uiRoot);
     return game;
   }
 
@@ -154,7 +179,7 @@ export class GameApp extends Component {
   private detachGameFromStory() {
     if (this.gameNode?.parent === this.storyRoot) {
       this.sliderGame?.hide();
-      this.mountSliderGame(this.node);
+      this.mountSliderGame(this.uiRoot);
     }
   }
 
