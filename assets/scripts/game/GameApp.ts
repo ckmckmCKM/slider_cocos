@@ -9,6 +9,7 @@ import { fullWidget, makeNode } from '../utils/UIFactory';
 import { UIRootAdapter } from '../ui/UIRootAdapter';
 import { StoryPlayer } from '../story/StoryPlayer';
 import { SliderGameView } from './SliderGameView';
+import { GmEntry } from './GmEntry';
 import { LobbyView } from '../home/LobbyView';
 import { MenuView } from '../home/MenuView';
 
@@ -23,6 +24,7 @@ export class GameApp extends Component {
   private sliderGame: SliderGameView | null = null;
   private storyRoot!: Node;
   private storyPlayer!: StoryPlayer;
+  private gmEntry!: GmEntry;
 
   private maxLevel = 1;
 
@@ -116,7 +118,9 @@ export class GameApp extends Component {
         this.sliderGame?.setStoryOverlayBlocked(blocked);
       }
     });
-    await this.storyPlayer.setupGm((level) => {
+
+    this.gmEntry = this.uiRoot.getComponent(GmEntry) || this.uiRoot.addComponent(GmEntry);
+    await this.gmEntry.setup((level) => {
       void this.enterGame(level);
     });
   }

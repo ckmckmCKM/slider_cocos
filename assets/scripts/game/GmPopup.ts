@@ -13,7 +13,7 @@ const { ccclass } = _decorator;
 export type GmJumpHandler = (level: number) => void;
 
 /**
- * 局内 GM 弹窗（代码搭建，挂在 SliderGame 根节点下）。
+ * GM 弹窗（代码搭建，挂在 Main/root 下）。
  * 含「选择关卡」入口；选关子面板可跳关。
  */
 @ccclass('GmPopup')

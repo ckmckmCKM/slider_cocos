@@ -2,12 +2,9 @@ import {
   _decorator, BlockInputEvents, Component, EventTouch, instantiate, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, tween,
 } from 'cc';
 import { DialogueView } from '../dialogue/DialogueView';
-import { GmPopup } from '../game/GmPopup';
 import { DESIGN_H, DESIGN_W, STORY_ORDER } from '../utils/Constants';
-import { GameSwitches } from '../utils/GameSwitches';
 import { ResCache } from '../utils/ResCache';
-import { SoundMgr } from '../utils/SoundMgr';
-import { fullWidget, makeButton, makeNode, setSprite, disableSpriteTrimSubtree, bindTouchEnd } from '../utils/UIFactory';
+import { fullWidget, makeNode, setSprite, disableSpriteTrimSubtree, bindTouchEnd } from '../utils/UIFactory';
 import { TipPopup } from '../ui/TipPopup';
 import {
   isStoryDialogue, isStoryGameGate, isStorySubview,
@@ -49,9 +46,6 @@ export class StoryPlayer extends Component {
   private _onSubviewClose: (() => void) | null = null;
   private _onStoryGameOverlay: ((blocked: boolean) => void) | null = null;
   private _onFinished: (() => void) | null = null;
-  private _gmBtn: Node | null = null;
-  private _gmPopup: GmPopup | null = null;
-  private _onGmJump: ((level: number) => void) | null = null;
 
   onLoad() {
     const block = this.node.getComponent(BlockInputEvents) || this.node.addComponent(BlockInputEvents);
@@ -120,42 +114,6 @@ export class StoryPlayer extends Component {
   /** subview 打开/关闭时屏蔽下层 Story 内 Game 的触摸 */
   setStoryGameOverlayHandler(handler: ((blocked: boolean) => void) | null) {
     this._onStoryGameOverlay = handler;
-  }
-
-  /** GM 入口挂在 Story 下；显隐由 switches.showGm 控制 */
-  async setupGm(onJump: (level: number) => void): Promise<void> {
-    this._onGmJump = onJump;
-    if (this._gmBtn) return;
-
-    const switches = await GameSwitches.load();
-    this._gmBtn = makeButton(this.node, 'gmBtn', 120, 72, 'GM', () => {
-      SoundMgr.play('click');
-      this.openGm();
-    });
-    this._gmBtn.setPosition(DESIGN_W / 2 - 90, DESIGN_H / 2 - 200, 0);
-    this._gmBtn.active = switches.showGm;
-
-    this._gmPopup = GmPopup.create(this.node);
-    this._gmPopup.setJumpHandler((level) => {
-      this._onGmJump?.(level);
-    });
-    this.bringGmToFront();
-  }
-
-  private openGm() {
-    if (!this._gmPopup) return;
-    this.bringGmToFront();
-    this._gmPopup.open();
-  }
-
-  private bringGmToFront() {
-    if (this._gmPopup?.isOpen()) {
-      this._gmPopup.node.setSiblingIndex(this.node.children.length - 1);
-      if (this._gmBtn) this._gmBtn.setSiblingIndex(this.node.children.length - 2);
-      return;
-    }
-    if (this._gmPopup) this._gmPopup.node.setSiblingIndex(this.node.children.length - 1);
-    if (this._gmBtn) this._gmBtn.setSiblingIndex(this.node.children.length - 1);
   }
 
   private setStoryGameOverlayBlocked(blocked: boolean) {
@@ -512,7 +470,7 @@ export class StoryPlayer extends Component {
     btn.setSiblingIndex(1);
   }
 
-  /** gameGateLayer 在 Tip 之上（提示不挡住游戏入口）；GM 保持最前 */
+  /** gameGateLayer 在 Tip 之上（提示不挡住游戏入口） */
   private syncOverlaySiblingOrder() {
     const tipNode = this._tipPopup?.node;
     const gateNode = this._gateRoot;
@@ -527,7 +485,6 @@ export class StoryPlayer extends Component {
     } else if (tipOnTree) {
       tipNode!.setSiblingIndex(this.node.children.length - 1);
     }
-    this.bringGmToFront();
   }
 
   private hideGameGateButton() {
