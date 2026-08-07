@@ -16,6 +16,8 @@ export class ResCache {
   private static _gameBundleLoading: Promise<AssetManager.Bundle> | null = null;
   private static _comBundle: AssetManager.Bundle | null = null;
   private static _comBundleLoading: Promise<AssetManager.Bundle> | null = null;
+  private static _homeBundle: AssetManager.Bundle | null = null;
+  private static _homeBundleLoading: Promise<AssetManager.Bundle> | null = null;
   private static _storyBundles = new Map<string, AssetManager.Bundle>();
   private static _storyBundleLoading = new Map<string, Promise<AssetManager.Bundle>>();
   private static _storyJson: Record<string, StoryConfig> = {};
@@ -38,6 +40,52 @@ export class ResCache {
       });
     });
     return this._gameBundleLoading;
+  }
+
+  /** 加载 home Asset Bundle（大厅 / 选关） */
+  static loadHomeBundle(): Promise<AssetManager.Bundle> {
+    if (this._homeBundle) return Promise.resolve(this._homeBundle);
+    if (this._homeBundleLoading) return this._homeBundleLoading;
+    this._homeBundleLoading = new Promise((resolve, reject) => {
+      assetManager.loadBundle('home', (err, bundle) => {
+        this._homeBundleLoading = null;
+        if (err || !bundle) {
+          reject(err || new Error('home bundle missing'));
+          return;
+        }
+        this._homeBundle = bundle;
+        resolve(bundle);
+      });
+    });
+    return this._homeBundleLoading;
+  }
+
+  /** home bundle 下图，path 不含扩展名 */
+  static async homeSprite(name: string): Promise<SpriteFrame | null> {
+    const path = `sprite/${name}`;
+    if (this._sf[`home:${path}`]) return this._sf[`home:${path}`];
+    const bundle = await this.loadHomeBundle();
+    const sf = await this.loadSpriteFromBundle(bundle, path);
+    if (sf) this._sf[`home:${path}`] = sf;
+    return sf;
+  }
+
+  /** home bundle 预制体，如 prefab/Lobby */
+  static async loadHomePrefab(path: string): Promise<Prefab | null> {
+    const key = `home:${path}`;
+    if (this._prefab[key]) return this._prefab[key];
+    const bundle = await this.loadHomeBundle();
+    return new Promise((resolve) => {
+      bundle.load(path, Prefab, (err, prefab) => {
+        if (err || !prefab) {
+          console.error('load home prefab failed', path, err);
+          resolve(null);
+          return;
+        }
+        this._prefab[key] = prefab;
+        resolve(prefab);
+      });
+    });
   }
 
   /** 加载 com Asset Bundle（公共 UI / 对话等） */
@@ -262,7 +310,8 @@ export class ResCache {
 
   static img(name: string) { return this.loadSprite(`img/${name}`); }
 
-  static ui(name: string) { return this.loadSprite(`ui/${name}`); }
+  /** 大厅 / 选关 UI 图（home bundle） */
+  static ui(name: string) { return this.homeSprite(name); }
   static uiBr(name: string) { return this.loadSprite(`sprite/ui_br/${name}`); }
 
   /** game bundle 预制体，如 prefab/SliderGame */

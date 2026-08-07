@@ -29,34 +29,54 @@ slider_cocos/
 │   ├── scenes/
 │   │   └── Main.scene              # 唯一主场景，Canvas → GameApp
 │   ├── bundle/
-│   │   └── game/                   # ★ Asset Bundle「game」：核心玩法资源 + 逻辑脚本
-│   │       ├── levels_br/Lv_XXXX.txt
-│   │       ├── pictures/**
-│   │       ├── ui_br/**
-│   │       ├── prefab/SliderGame.prefab  # Game 界面预制体
-│   │       └── audio/**            # 仅资源；逻辑脚本在 scripts/blocky
-│   ├── resources/                  # 大厅 / 选关等资源（resources bundle）
-│   │   ├── ui/**                   # Lobby / Menu UI
+│   │   ├── game/                   # Asset Bundle「game」：关卡 / 揭图 / 局内 UI / 音效
+│   │   │   ├── levels_br/Lv_XXXX.txt
+│   │   │   ├── pictures/**
+│   │   │   ├── sprite/ui_br/**
+│   │   │   ├── prefab/SliderGame.prefab
+│   │   │   └── audio/**
+│   │   ├── home/                   # Asset Bundle「home」：大厅 / 选关
+│   │   │   ├── sprite/**           # zy_bj, logo, an_lv, an_lan, gk_bj
+│   │   │   └── prefab/Lobby.prefab, Menu.prefab
+│   │   ├── com/                    # Asset Bundle「com」：公共弹窗
+│   │   │   └── prefab/Dialogue, Tip, PopupTemplate
+│   │   └── story1/                 # 剧情 bundle（story.json + step 图）
+│   ├── resources/                  # 默认 resources bundle（兼容保留）
 │   │   ├── img/**
-│   │   └── levels/all.json         # 旧版关卡（已废弃，ResCache 兼容保留）
+│   │   └── levels/all.json         # 旧版关卡（ResCache 兼容保留）
 │   └── scripts/
 │       ├── game/
-│       │   ├── GameApp.ts          # ★ 应用入口：Lobby / 选关 / HUD
+│       │   ├── GameApp.ts          # ★ 应用入口：实例化 Lobby/Menu/Game 预制体
+│       │   ├── SliderGameView.ts   # game 预制体视图
 │       │   ├── LevelEditor.ts      # 关卡编辑器
-│       │   └── BoardController.ts  # ⚠ 旧版「超级滑块」，已废弃，勿改
-│       ├── blocky/                 # ★ 核心玩法逻辑（不可放入 bundle 目录）
+│       │   └── BoardController.ts  # ⚠ 旧版「超级滑块」，已废弃
+│       ├── home/
+│       │   ├── LobbyView.ts        # home/Lobby 预制体逻辑
+│       │   └── MenuView.ts         # home/Menu 预制体逻辑
+│       ├── ui/
+│       │   ├── ViewBase.ts         # 全屏界面基类
+│       │   ├── PopupBase.ts        # 弹窗基类
+│       │   └── TipPopup.ts
+│       ├── story/
+│       │   ├── StoryPlayer.ts
+│       │   └── StoryTypes.ts
+│       ├── dialogue/
+│       │   └── DialogueView.ts
+│       ├── blocky/                 # ★ 核心玩法逻辑
 │       │   ├── BoardController.ts
 │       │   ├── LevelParser.ts
-│       │   ├── LevelSerializer.ts
 │       │   └── ...
 │       └── utils/
 │           ├── Constants.ts
-│           ├── ResCache.ts         # loadGameBundle + 按 bundle 分流加载
-│           ├── UIFactory.ts
+│           ├── ResCache.ts         # game / home / com / story bundle 加载
+│           ├── UIFactory.ts        # ★ 通用 UI：节点导航 / 绘制 / 触摸 / 控件工厂
 │           ├── SoundMgr.ts
 │           └── Helpers.ts
 ├── tools/
-│   └── validate-levels.mjs
+│   ├── validate-levels.mjs
+│   ├── prefab-common.mjs           # 内置 default_btn_normal、按文件是否存在选图
+│   ├── gen-home-prefabs.mjs        # 生成 Lobby / Menu 预制体
+│   └── gen-slider-game-prefab.mjs  # 生成 SliderGame 预制体
 ├── docs/
 │   └── ARCHITECTURE.md
 └── README.md
@@ -68,10 +88,11 @@ slider_cocos/
 
 ```mermaid
 flowchart TB
-  subgraph UI["GameApp（UI 层）"]
-    Lobby --> Menu --> Game
-    Game --> HUD
-    Game --> Overlays
+  subgraph UI["GameApp（壳）"]
+    Lobby["LobbyView\nhome/Lobby"]
+    Menu["MenuView\nhome/Menu"]
+    Game["SliderGameView\ngame/SliderGame"]
+    Story["StoryPlayer"]
   end
 
   subgraph Core["blocky（逻辑层）"]
@@ -80,27 +101,33 @@ flowchart TB
     EH[EnvHelpers]
   end
 
-  subgraph Data["game bundle"]
-    TXT["levels_br/Lv_XXXX.txt"]
-    RC[ResCache.loadGameBundle]
-    PIC["pictures/**"]
+  subgraph Bundles["Asset Bundles"]
+    HOME[home]
+    GAME[game]
+    COM[com]
+    STORY[story1]
   end
 
-  Game -->|enterGame idx| RC
-  RC --> TXT
+  GameApp --> Lobby & Menu & Game & Story
+  Lobby --> HOME
+  Menu --> HOME
+  Game --> GAME
+  Story --> STORY & COM
+  Game -->|enterGame| RC[ResCache]
+  RC --> GAME
   RC --> LP
   LP -->|LevelConfig| BC
   BC --> EH
-  BC -->|loadSprite| PIC
   BC -->|callbacks| Game
 ```
 
 ### 3.1 启动流程
 
-1. `GameApp.onLoad` → 设置分辨率、`SoundMgr.init`（内部 `ResCache.loadGameBundle`）、构建 Lobby/Menu，实例化 `prefab/SliderGame`
-2. 默认显示 **Lobby** → 进入 **Menu** 选关
-3. `enterGame(idx)` → `ResCache.loadBrLevel(idx)` → `BoardController.startLevel(idx, lvl)`
-4. `GameApp.update` 每帧调用 `board.tick(dt)`
+1. `GameApp.onLoad` → 设置分辨率、`SoundMgr.init`、实例化 `home/prefab/Lobby`、`home/prefab/Menu`；**SliderGame 按需创建**
+2. 各 View 调用 `setup()` 绑定预制体节点
+3. 大厅进局：`ensureSliderGame` → 挂到 **Canvas**
+4. 剧情进局：`ensureSliderGame` → 挂到 **Story**（`frameLayer` 与 `subview` 之间）
+5. `GameApp.update` 每帧调用 `SliderGameView.tick(dt)`（已创建时）
 
 ### 3.2 BoardController 生命周期
 
@@ -132,10 +159,12 @@ startLevel
 
 ### 4.1 `GameApp.ts` — 应用壳
 
-- **职责：** 三屏 UI（Lobby / Menu / Game）、HUD、胜负/续关弹层、进度存档
+- **职责：** 实例化并切换 Lobby / Menu / Game / Story，协调导航与进度存档
+- **预制体：** `home/prefab/Lobby`、`home/prefab/Menu`；`game/prefab/SliderGame` **首次进局时**才实例化
+- **Game 挂载：** 大厅/选关 → Canvas；剧情 `gameGate` → `Story` 子节点，顺序 `bg` → `frameLayer` → **Game** → `subview` → …
+- **剧情联动：** 关闭 `subview` 时一并 `hide` Story 下的 Game（节点保留）；打开下一个 `subview` 不销毁 Game 节点
 - **存档：** `localStorage` key = `block_reveal_max`（`Constants.PROGRESS_KEY`）
-- **续关：** +60 秒 / 炸弹拆弹（`keepPlaying` / `keepPlayingBomb`）
-- **不碰棋盘逻辑**，只持有 `BoardController` 实例
+- **不碰棋盘逻辑**，棋盘由 `SliderGameView` 内 `BoardController` 驱动
 
 ### 4.2 `LevelParser.ts` — 关卡解析
 
@@ -144,7 +173,7 @@ startLevel
 - **`pictureResourcePath()`**：`AssetPicture\Foo\bar` → `pictures/Foo/bar`
 - **shape 去重：** 完全相同条目跳过；重复 id 自动分配新 id（修复 Lv70/Lv89 源数据问题）
 
-### 4.3 `BoardController.ts` — 棋盘核心（~1900 行，位于 `assets/bundle/game/scripts/blocky/`）
+### 4.3 `BoardController.ts` — 棋盘核心（~1900 行，位于 `assets/scripts/blocky/`）
 
 按功能分区（搜索 `// ───` 分隔注释）：
 
@@ -201,11 +230,18 @@ piece_*
 ### 4.5 `ResCache.ts` — 资源加载
 
 ```typescript
-ResCache.loadGameBundle()   // 加载 game Asset Bundle（首次）
-ResCache.loadBrLevel(idx)   // game bundle 内关卡文本 → LevelParser
-ResCache.loadSprite(path)   // pictures/ui_br → game；ui/img → resources
-ResCache.uiBr(name)         // game bundle / ui_br
-ResCache.ui(name)           // resources / ui
+ResCache.loadGameBundle()    // game：关卡 / 揭图 / 局内 UI / 音效 / SliderGame 预制体
+ResCache.loadHomeBundle()    // home：大厅 / 选关 UI 与预制体
+ResCache.loadComBundle()     // com：Dialogue / Tip 等公共预制体
+ResCache.loadStoryBundle()   // story1 等剧情 bundle
+ResCache.loadBrLevel(idx)    // game bundle 内关卡文本 → LevelParser
+ResCache.loadSprite(path)    // pictures / sprite/ui_br → game；其余 → resources
+ResCache.homeSprite(name)    // home bundle / sprite/{name}
+ResCache.ui(name)            // 等同 homeSprite（大厅图）
+ResCache.uiBr(name)          // game bundle / sprite/ui_br
+ResCache.loadHomePrefab()    // 如 prefab/Lobby
+ResCache.loadPrefab()        // game bundle 预制体，如 prefab/SliderGame
+ResCache.loadComPrefab()     // com bundle 预制体
 ```
 
 - 关卡缓存 `_brLevels: Map<number, LevelConfig>`
@@ -216,9 +252,27 @@ ResCache.ui(name)           // resources / ui
 | 文件 | 用途 |
 |------|------|
 | `Constants.ts` | `DESIGN_W/H`、`BOARD_MAX_W/H`、`MAX_LEVEL`、颜色表、音频路径 |
-| `UIFactory.ts` | 无 prefab 的 UI 构建（Graphics + Label + Sprite） |
-| `SoundMgr.ts` | `resources.load` 音频 + 播放 |
-| `Helpers.ts` | `colorFromHex`、`shadeHex` 等 |
+| `UIFactory.ts` | **通用 UI 工具集**（见下表）；预制体视图与纯代码 UI 均由此构建 |
+| `SoundMgr.ts` | game bundle 音频加载与播放 |
+| `Helpers.ts` | `colorFromHex`、`shadeHex`、`clamp` 等数值/颜色工具 |
+
+#### `UIFactory.ts` 能力一览
+
+| 分类 | 函数 | 说明 |
+|------|------|------|
+| 节点导航 | `childPath` / `mustChild` / `mustLabel` | 按 `/` 路径查找预制体子节点 |
+| 节点创建 | `makeNode` / `fullWidget` / `addLabel` / `setSprite` / `setColorSprite` | 运行时创建 UI 节点；**Sprite 默认不 Trim** |
+| Sprite | `setSprite` / `disableSpriteTrim` / `disableSpriteTrimSubtree` | 赋值后自动 `trim=false`；勿直接 `addComponent(Sprite)` 而不关 Trim |
+| Graphics | `graphicsHost` / `paintRect` / `paintRoundRect` / `paintRoundButton` / `paintRoundCell` | 矩形 / 圆角底；`Label`/`Sprite` 与 `Graphics` 不同节点时自动建 `bg` 子节点 |
+| 触摸 | `bindTouchEnd` | 统一 `TOUCH_END` + `propagationStopped` |
+| 组合控件 | `makeButton` / `makeImageButton` / `makeOverlay` | 带文案按钮、图片按钮、遮罩层 |
+
+#### 视图基类
+
+| 文件 | 用途 |
+|------|------|
+| `ui/ViewBase.ts` | 全屏界面 `open` / `close` / `hide`（Lobby、Menu、SliderGame） |
+| `ui/PopupBase.ts` | 弹窗基类（Dialogue、Tip） |
 
 ---
 
@@ -357,9 +411,12 @@ Local: gridToLocal(x,y) → ((x-cxm)*C, (y-cym)*C)
 |------|--------------|------------|--------|
 | 关卡 | — | `levels_br/Lv_XXXX` | game |
 | 揭图 | `AssetPicture\...\name` | `pictures/.../name` | game |
-| 局内 UI | — | `ui_br/...` | game |
+| 局内 UI | — | `sprite/ui_br/...` | game |
 | 音效 | — | `audio/...` | game |
-| 大厅 UI | — | `ui/...` | resources |
+| 大厅 UI | — | `sprite/zy_bj` 等 | **home** |
+| 大厅/选关预制体 | — | `prefab/Lobby` / `prefab/Menu` | **home** |
+| 公共弹窗 | — | `prefab/Dialogue` 等 | **com** |
+| 剧情 | — | `story.json`、`sprite/step/*` | **story1** |
 
 `ResCache.loadSprite` 会依次尝试 `{path}/spriteFrame`、`{path}`、`ImageAsset`。
 
@@ -379,6 +436,43 @@ node tools/validate-levels.mjs 1 100
 
 - 打开 `Main.scene` → 预览
 - MCP `user-cocos-creator` 可查询场景/日志（预览服需手动启动）
+
+### 9.3 预制体生成（`tools/gen-*.mjs`）
+
+脚本在本地生成 Cocos 3.8 格式的 `.prefab` JSON，用于**首次脚手架**。
+
+| 脚本 | 输出 |
+|------|------|
+| `gen-home-prefabs.mjs` | `home/prefab/Lobby.prefab`、`Menu.prefab` |
+| `gen-slider-game-prefab.mjs` | `game/prefab/SliderGame.prefab` |
+
+共用逻辑见 `tools/prefab-common.mjs`。
+
+#### 重要：不覆盖已有预制体
+
+| 规则 | 说明 |
+|------|------|
+| **仅新建** | 目标 `.prefab` 已存在 → 脚本 **skip**，不读取、不解析、不写入 |
+| **不读旧结构** | 不会打开已有 prefab JSON 做合并或保留 UUID |
+| **meta 同理** | `.prefab.meta` 已存在时不改写（避免冲掉编辑器里的引用） |
+| **日常修改** | 在 **Cocos 编辑器** 里改节点 / 组件；逻辑在对应 `*View.ts` |
+| **重新生成** | 需先手动删除对应 `.prefab`（及必要时 `.meta`），再跑脚本 |
+
+#### 按钮规范（无美术图时的默认行为）
+
+| 项 | 约定 |
+|----|------|
+| 底图 | 父节点挂 `Sprite`；bundle 内无对应 `.png` 时使用 Cocos 内置 **`default_btn_normal`**（`db://internal/default_ui/default_btn_normal.png`，UUID `20835ba4-6145-4fbc-a58a-051ce700aa3e@f9941`） |
+| 文案 | 子节点 **`txt`** 挂 `Label`，**不要**与 `Sprite` 同节点（`UIRenderer` 冲突） |
+| 自定义图 | `home/sprite/an_lv.png` 等存在时，`resolveBtnSprite` 自动用 bundle 内 SpriteFrame |
+| 非按钮装饰 | 背景 / Logo 等用 `resolveOptionalSprite`：无图则不挂 `Sprite`，运行时可用 `Label` / `Graphics` 兜底 |
+
+```bash
+node tools/gen-home-prefabs.mjs
+node tools/gen-slider-game-prefab.mjs
+```
+
+生成后请在编辑器中刷新资源。View 脚本只绑定触摸与运行时逻辑，**不要**用 gen 脚本反复覆盖预制体。
 
 ### 9.4 关卡编辑器
 
@@ -404,7 +498,7 @@ node tools/validate-levels.mjs 1 100
 5. **双层 overlap 是合法的** — 同一格可有 hiddenUnder 下层块
 6. **不要做 XY 对调 listPos** — 会破坏 picture index 与格子的对应关系
 7. **源关卡偶发重复 shape** — Parser 已 dedupe + 重分配 id；极端关仍建议跑 validate
-8. **纯代码 UI** — 无 prefab 驱动，改 UI 去 `GameApp.build*` / `UIFactory`
+8. **UI 以预制体为主** — Lobby/Menu/SliderGame 为 bundle 预制体 + View 脚本；改结构编辑 prefab 或 `tools/gen-*.mjs`，改交互去 `LobbyView` / `MenuView` / `SliderGameView`；通用绘制与绑定用 `UIFactory`
 9. **拖动范围不能按初始行列缓存** — 拼块可能先沿一轴绕开障碍，再沿另一轴继续移动；碰撞必须基于当前 `cells` 逐步判定
 10. **图片遮罩不要拆成逐格矩形** — 活跃实现是 `picture` 节点上的单个 `GRAPHICS_STENCIL`，轮廓必须复用 `makePiece` 的 rounded loops
 
@@ -415,6 +509,7 @@ node tools/validate-levels.mjs 1 100
 ### 代码约定
 
 - Map/Set 转数组：使用 `Array.from(map.values())`，**不要**使用 `[...map.values()]`（`entries()` / `keys()` 同理）。
+- **Sprite Trim 默认关闭**：运行时挂图统一走 `UIFactory.setSprite` / `setColorSprite`（内部 `trim=false` + `isTrimmedMode=false`）。若必须 `addComponent(Sprite)`，赋值后调用 `disableSpriteTrim`。编辑器预制体上的 Sprite 请手动取消 Trim，或在 prefab JSON 里设 `_isTrimmedMode: false`。
 
 ### 新增机关
 
@@ -432,8 +527,10 @@ node tools/validate-levels.mjs 1 100
 
 ### 修改 UI
 
-- 改 `GameApp.ts` 的 `buildLobby` / `buildMenu` / `buildGame`
-- 棋盘内视觉改 `BoardController` / `EnvHelpers`
+- **大厅 / 选关：** 在编辑器中编辑 `home/prefab/*.prefab`；逻辑在 `LobbyView` / `MenuView`（不要用 gen 脚本覆盖已有 prefab）
+- **局内：** 编辑 `game/prefab/SliderGame.prefab`，逻辑在 `SliderGameView`
+- **通用绘制 / 绑定：** 使用 `UIFactory`（`mustChild`、`paintRoundButton`、`bindTouchEnd` 等），不要在各 View 重复实现
+- **棋盘内视觉：** 改 `blocky/BoardController` / `EnvHelpers`
 
 ---
 
@@ -441,13 +538,19 @@ node tools/validate-levels.mjs 1 100
 
 ```
 GameApp
-  └─ blocky/BoardController
-       ├─ blocky/LevelParser ── blocky/LevelTypes, Enums
-       ├─ blocky/EnvHelpers ── LevelTypes, Enums
-       └─ utils/ResCache, UIFactory, SoundMgr, Constants, Helpers
+  ├─ home/LobbyView, MenuView ── ui/ViewBase, utils/UIFactory
+  ├─ game/SliderGameView ── ui/ViewBase, utils/UIFactory
+  │    └─ blocky/BoardController
+  │         ├─ blocky/LevelParser ── blocky/LevelTypes, Enums
+  │         ├─ blocky/EnvHelpers ── LevelTypes, Enums
+  │         └─ utils/ResCache, SoundMgr, Constants, Helpers
+  └─ story/StoryPlayer ── com prefab, story bundle
 
 ResCache
   └─ blocky/LevelParser
+
+UIFactory
+  └─ Helpers, Constants
 
 （无循环依赖；game/BoardController 已孤立废弃）
 ```
@@ -465,7 +568,9 @@ ResCache
 | — | LevelParser shape 去重 / 冲突 id 重分配 |
 | — | clear/flyOut 双重 destroy 修复 |
 | 2026-08-05 | 拼块图片改为单 Sprite + `GRAPHICS_STENCIL` 精确圆角/内凹裁剪；补齐厚边与选中白描边 |
-| 2026-08-06 | 核心玩法迁入 **game Asset Bundle**（`assets/bundle/game`）：关卡/揭图/ui_br/audio + blocky 脚本；ResCache/SoundMgr 改为 bundle 加载 |
+| 2026-08-06 | 核心玩法迁入 **game Asset Bundle**；ResCache/SoundMgr 改为 bundle 加载 |
+| 2026-08-07 | **home bundle**：Lobby/Menu 预制体；`UIFactory` 统一 UI 工具；预制体按钮无美术图时用内置 `default_btn_normal` + `txt` Label |
+| 2026-08-07 | `setSprite` 默认关闭 Sprite **Trim**（`trim` / `isTrimmedMode`） |
 
 ---
 

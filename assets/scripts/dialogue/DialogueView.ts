@@ -1,5 +1,5 @@
 import {
-  _decorator, Label, Node, Sprite, EventTouch,
+  _decorator, Label, Node, Sprite, EventTouch, UIOpacity, tween, Tween,
 } from 'cc';
 import { ResCache } from '../utils/ResCache';
 import { PopupBase } from '../ui/PopupBase';
@@ -7,6 +7,7 @@ import { PopupBase } from '../ui/PopupBase';
 const { ccclass, property } = _decorator;
 
 const ADVANCE_AFTER_SKIP_SEC = 0.2;
+const DIALOGUE_FADE_SEC = 0.28;
 
 @ccclass('DialogueView')
 export class DialogueView extends PopupBase {
@@ -29,6 +30,7 @@ export class DialogueView extends PopupBase {
   private _charsPerSecond = 18;
   private _onTypingComplete: (() => void) | null = null;
   private _pendingAdvance = false;
+  private _fadingIn = false;
 
   onLoad() {
     super.onLoad();
@@ -75,21 +77,29 @@ export class DialogueView extends PopupBase {
 
   /** 显示对话：说话人 + 全文（逐字打出）；onClose 在玩家点击关闭时触发 */
   show(speaker: string, text: string, onClose?: () => void) {
-    this.cancelPendingAdvance();
-    if (this.speakerLabel) this.speakerLabel.string = speaker;
-    this._fullText = text || '';
-    this._charIndex = 0;
-    this._typing = this._fullText.length > 0;
-    this._typeAcc = 0;
-    this._onTypingComplete = null;
-    if (this.contentLabel) this.contentLabel.string = '';
+    this.prepareContent(speaker, text);
     this.open(onClose);
+    this.startTyping();
+  }
+
+  /**
+   * 先渐现对话框，再开始逐字打出（用于一级界面渐现后自动衔接对话）
+   */
+  async showAfterFade(speaker: string, text: string, onClose?: () => void) {
+    this.prepareContent(speaker, text);
+    this.open(onClose);
+    this._fadingIn = true;
+    await this.fadeIn();
+    this._fadingIn = false;
+    this.startTyping();
   }
 
   hide() {
     this.cancelPendingAdvance();
     this.stopTyping();
     this._onTypingComplete = null;
+    this._fadingIn = false;
+    Tween.stopAllByTarget(this.getFadeTarget());
     super.hide();
   }
 
@@ -97,6 +107,38 @@ export class DialogueView extends PopupBase {
     this.cancelPendingAdvance();
     this.stopTyping();
     this._onTypingComplete = null;
+  }
+
+  private prepareContent(speaker: string, text: string) {
+    this.cancelPendingAdvance();
+    if (this.speakerLabel) this.speakerLabel.string = speaker;
+    this._fullText = text || '';
+    this._charIndex = 0;
+    this._typing = false;
+    this._typeAcc = 0;
+    this._onTypingComplete = null;
+    if (this.contentLabel) this.contentLabel.string = '';
+  }
+
+  private startTyping() {
+    this._typing = this._fullText.length > 0;
+    this._typeAcc = 0;
+  }
+
+  private getFadeTarget(): UIOpacity {
+    return this.node.getComponent(UIOpacity) || this.node.addComponent(UIOpacity);
+  }
+
+  private fadeIn(): Promise<void> {
+    const op = this.getFadeTarget();
+    Tween.stopAllByTarget(op);
+    op.opacity = 0;
+    return new Promise((resolve) => {
+      tween(op)
+        .to(DIALOGUE_FADE_SEC, { opacity: 255 })
+        .call(() => resolve())
+        .start();
+    });
   }
 
   isTyping() {
@@ -130,6 +172,7 @@ export class DialogueView extends PopupBase {
   private onTap(e: EventTouch) {
     e.propagationStopped = true;
     if (!this.isOpen()) return;
+    if (this._fadingIn) return;
     if (this._pendingAdvance) return;
     if (this._typing) {
       this.skipTyping();

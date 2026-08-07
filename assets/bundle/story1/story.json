@@ -36,11 +36,38 @@
     "5",
     "6",
     "7",
+    {
+      "type": "dialogue",
+      "speaker": "管家",
+      "text": "先生，吉时快到了，怎么还不进门"
+    },
     "8",
     "9",
+    {
+      "type": "dialogue",
+      "speaker": "管家",
+      "text": "今天一共4张照片，每拍完一张照片就给你一部分报酬"
+    },
     "10",
+    {
+      "type": "dialogue",
+      "speaker": "管家",
+      "text": "第一张迎宾照，镜头对准条案"
+    },
     "10-1",
     "10-2",
+    {
+      "type": "dialogue",
+      "speaker": "管家",
+      "text": "且慢，这···这里原本我们主家的牌位哪去了，先生帮我找一下。"
+    },
+    {
+      "type": "gameGate",
+      "frame": "3",
+      "btn": "gametubiao",
+      "level": 1,
+      "tip": "需要灵牌"
+    },
     {
       "type": "subview",
       "bg": "10-2daojuheidi",
@@ -49,13 +76,45 @@
     "10-3",
     "10-4",
     "11-1",
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "肉眼看不见的东西，全被这台相机拍了下来"
+    },
     "12",
     "13",
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "这场婚宴，似乎早就替我留好了位置"
+    },
     "13-1guodu",
+    {
+      "type": "dialogue",
+      "speaker": "管家",
+      "text": "先生请随我来，我们去内堂稍作休息"
+    },
     "14",
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "这些人影看上去……好像纸人"
+    },
     "15",
     "16",
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "不能再往前走了，灯笼上的黄符破损，必须赶紧修复它"
+    },
     "17",
+    {
+      "type": "gameGate",
+      "frame": "3",
+      "btn": "gametubiao",
+      "level": 1,
+      "tip": "需要符纸"
+    },
     "18",
     {
       "type": "subview",
@@ -66,10 +125,40 @@
     "19",
     "20",
     "21",
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "符能镇住他们，却镇不住那股一直跟着我的脚步声"
+    },
     "22",
     "23",
     "23-1",
     "24",
-    "25"
+    {
+      "type": "dialogue",
+      "speaker": "？？？",
+      "text": "谁？谁在外面？"
+    },
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "啊，新娘子，我是主家请的摄影师，我叫林墨"
+    },
+    "25",
+    {
+      "type": "dialogue",
+      "speaker": "？？？",
+      "text": "先生，我以为是接我的阿婆，吉时快到了，能帮我拿一下接亲的红伞吗？"
+    },
+    {
+      "type": "dialogue",
+      "speaker": "？？？",
+      "text": "沈家的规矩没有拜堂必须红伞罩头才可以从这房间出去"
+    },
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "可以……"
+    }
   ]
 }

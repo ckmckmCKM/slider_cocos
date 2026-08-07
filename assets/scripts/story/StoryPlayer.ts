@@ -4,7 +4,7 @@ import {
 import { DialogueView } from '../dialogue/DialogueView';
 import { DESIGN_H, DESIGN_W } from '../utils/Constants';
 import { ResCache } from '../utils/ResCache';
-import { fullWidget, makeNode, setSprite } from '../utils/UIFactory';
+import { fullWidget, makeNode, setSprite, disableSpriteTrimSubtree } from '../utils/UIFactory';
 import { TipPopup } from '../ui/TipPopup';
 import {
   isStoryDialogue, isStoryGameGate, isStorySubview,
@@ -43,6 +43,7 @@ export class StoryPlayer extends Component {
   private _gateActive = false;
   private _gateStep: StoryStepGameGate | null = null;
   private _onGameRequest: ((level: number, onWin: () => void) => void) | null = null;
+  private _onSubviewClose: (() => void) | null = null;
   private _onFinished: (() => void) | null = null;
 
   onLoad() {
@@ -78,6 +79,9 @@ export class StoryPlayer extends Component {
 
     this._subIcon = makeNode('icon', this._subRoot, DESIGN_W, DESIGN_H);
     setSprite(this._subIcon, null);
+
+    disableSpriteTrimSubtree(this._frameLayer);
+    disableSpriteTrimSubtree(this._subRoot);
   }
 
   onDestroy() {
@@ -95,6 +99,16 @@ export class StoryPlayer extends Component {
     this._onGameRequest = handler;
   }
 
+  /** 关闭 subview 时回调（用于一并关闭剧情内 Game） */
+  setSubviewCloseHandler(handler: (() => void) | null) {
+    this._onSubviewClose = handler;
+  }
+
+  /** Game 节点应插入的位置：frameLayer 与 subview 之间 */
+  getGameSiblingIndex(): number {
+    return this._frameLayer.getSiblingIndex() + 1;
+  }
+
   /** 开始播放指定剧情（默认 story1） */
   async play(storyName = 'story1', onFinished?: () => void) {
     this._storyName = storyName;
@@ -107,7 +121,7 @@ export class StoryPlayer extends Component {
     this._frameB.active = false;
     this._frameAOpacity.opacity = 255;
     this._frameBOpacity.opacity = 255;
-    this._subRoot.active = false;
+    this.hideSubview();
     this.hideDialogue();
     this.hideGameGate();
 
@@ -137,8 +151,16 @@ export class StoryPlayer extends Component {
     this._frameB.active = false;
     this._frameAOpacity.opacity = 255;
     this._frameBOpacity.opacity = 255;
+    this.hideSubview();
+  }
+
+  /** 关闭二级界面并清空 icon 上的 SpriteFrame */
+  private hideSubview() {
+    setSprite(this._subIcon, null);
+    Tween.stopAllByTarget(this._subOpacity);
     this._subRoot.active = false;
     this._subOpacity.opacity = 255;
+    if (this._onSubviewClose) this._onSubviewClose();
   }
 
   private onTap(e: EventTouch) {
@@ -178,8 +200,7 @@ export class StoryPlayer extends Component {
       await this.leaveDialogueToStep(nextIndex);
     } else if (isStorySubview(prev)) {
       await this.fadeOpacity(this._subOpacity, 0);
-      this._subRoot.active = false;
-      this._subOpacity.opacity = 255;
+      this.hideSubview();
       this._index = nextIndex;
       await this.crossfadeFrame(next as string);
     } else {
@@ -224,7 +245,7 @@ export class StoryPlayer extends Component {
   /** 首张一级图渐现 */
   private async fadeInFrame(name: string) {
     this.logStep(this._index);
-    this._subRoot.active = false;
+    this.hideSubview();
     this.hideDialogue();
     this.hideGameGate();
     const front = this.frontFrame();
@@ -233,12 +254,14 @@ export class StoryPlayer extends Component {
     front.node.active = true;
     front.opacity.opacity = 0;
     await this.fadeOpacity(front.opacity, 255);
+    disableSpriteTrimSubtree(this._frameLayer);
+    await this.maybeChainDialogueAfterFrame();
   }
 
   /** 一级界面切换：当前图渐隐，下一张渐现 */
   private async crossfadeFrame(name: string) {
     this.logStep(this._index);
-    this._subRoot.active = false;
+    this.hideSubview();
     this.hideDialogue();
     this.hideGameGate();
     this._frameLayer.active = true;
@@ -273,6 +296,18 @@ export class StoryPlayer extends Component {
     front.node.active = false;
     front.opacity.opacity = 255;
     this._frameFrontIsA = !this._frameFrontIsA;
+    disableSpriteTrimSubtree(this._frameLayer);
+    await this.maybeChainDialogueAfterFrame();
+  }
+
+  /** 一级图渐现完成后，若下一步为对话则自动渐现对话框并逐字打出 */
+  private async maybeChainDialogueAfterFrame(): Promise<void> {
+    const nextIdx = this._index + 1;
+    if (nextIdx >= this._steps.length) return;
+    const next = this._steps[nextIdx];
+    if (!isStoryDialogue(next)) return;
+    this._index = nextIdx;
+    await this.presentDialogue(next, { fadeInBeforeTyping: true });
   }
 
   /** 二级界面叠在一级之上 */
@@ -295,13 +330,14 @@ export class StoryPlayer extends Component {
 
     this._subOpacity.opacity = 0;
     await this.fadeOpacity(this._subOpacity, 255);
+    disableSpriteTrimSubtree(this._subRoot);
   }
 
   /** 一级界面 + 游戏入口：通关后继续剧情 */
   private async presentGameGate(step: StoryStepGameGate): Promise<void> {
     this.logStep(this._index);
     this.hideDialogue();
-    this._subRoot.active = false;
+    this.hideSubview();
     this._gateStep = step;
     this._gateActive = true;
 
@@ -379,6 +415,7 @@ export class StoryPlayer extends Component {
         console.error('game gate handler missing');
         return;
       }
+      this.hideGameGateLayerOnly();
       this._onGameRequest(step.level, () => this.completeGameGate());
     });
     this._gateBtn = btn;
@@ -414,6 +451,20 @@ export class StoryPlayer extends Component {
     if (this._gateTapCatcher) this._gateTapCatcher.active = false;
   }
 
+  /** 进入局内：仅隐藏 gameGateLayer，保留 gate 状态供通关后 completeGameGate */
+  hideGameGateLayerOnly() {
+    if (this._gateRoot) this._gateRoot.active = false;
+    if (this._tipPopup?.isOpen()) this._tipPopup.hide();
+  }
+
+  /** 进局失败时恢复 gameGateLayer */
+  showGameGateLayerOnly() {
+    if (!this._gateActive || !this._gateRoot) return;
+    this._gateRoot.active = true;
+    if (this._gateTapCatcher) this._gateTapCatcher.active = true;
+    this.syncOverlaySiblingOrder();
+  }
+
   private hideGameGate() {
     this._gateActive = false;
     this._gateStep = null;
@@ -445,7 +496,10 @@ export class StoryPlayer extends Component {
   }
 
   /** 通用对话弹窗（com/duihuakuang + mingzi），叠在当前一级图之上 */
-  private async presentDialogue(step: StoryStepDialogue): Promise<void> {
+  private async presentDialogue(
+    step: StoryStepDialogue,
+    opts?: { fadeInBeforeTyping?: boolean },
+  ): Promise<void> {
     this.logStep(this._index);
     this._frameLayer.active = true;
     this.frontFrame().node.active = true;
@@ -453,15 +507,26 @@ export class StoryPlayer extends Component {
     const view = await this.ensureDialogueView();
     if (!view) return;
 
+    const onDialogueClose = () => {
+      const nextIdx = this._index + 1;
+      if (nextIdx >= this._steps.length) {
+        this.finish();
+        return Promise.resolve();
+      }
+      return this.leaveDialogueToStep(nextIdx);
+    };
+
+    if (opts?.fadeInBeforeTyping) {
+      return new Promise((resolve) => {
+        void view.showAfterFade(step.speaker, step.text, () => {
+          void onDialogueClose().then(() => resolve());
+        });
+      });
+    }
+
     return new Promise((resolve) => {
       view.show(step.speaker, step.text, () => {
-        const nextIdx = this._index + 1;
-        if (nextIdx >= this._steps.length) {
-          this.finish();
-          resolve();
-          return;
-        }
-        void this.leaveDialogueToStep(nextIdx).then(() => resolve());
+        void onDialogueClose().then(() => resolve());
       });
     });
   }
