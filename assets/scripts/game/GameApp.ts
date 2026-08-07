@@ -110,7 +110,6 @@ export class GameApp extends Component {
     this.game.name = 'Game';
     canvas.addChild(this.game);
     fullWidget(this.game);
-    this.game.active = false;
     await this.bindGame(this.game);
   }
 
@@ -228,10 +227,6 @@ export class GameApp extends Component {
   }
 
   private async bindGame(root: Node) {
-    const bg = mustChild(root, 'bg');
-    const bgSf = await ResCache.ui('gk_bj');
-    if (bgSf) setSprite(bg, bgSf);
-
     this.boardRoot = mustChild(root, 'Board');
     this.board = new BoardController(this.boardRoot, {
       onHud: () => this.refreshHud(),
@@ -251,21 +246,17 @@ export class GameApp extends Component {
     this.paintRoundRect(this.goalBar, -(DESIGN_W - 60) / 2, -32, DESIGN_W - 60, 64, 12, new Color(120, 70, 30, 55));
 
     const tools = mustChild(root, 'tools');
-    await this.bindTools(tools);
-    tools.active = false;
+    this.bindTools(tools);
 
     const tipN = mustChild(root, 'tip');
     this.tip = mustLabel(root, 'tip/txt');
     this.paintRoundRect(tipN, -310, -20, 620, 40, 14, new Color(90, 52, 26, 170));
-    tipN.active = false;
 
     this.toastNode = mustChild(root, 'toast');
     this.toast = mustLabel(root, 'toast/txt');
     this.paintRoundRect(this.toastNode, -180, -28, 360, 56, 14, new Color(90, 52, 26, 230));
-    this.toastNode.active = false;
 
     this.winOverlay = mustChild(root, 'win');
-    this.winOverlay.active = false;
     this.paintRect(this.winOverlay, -DESIGN_W / 2, -DESIGN_H / 2, DESIGN_W, DESIGN_H, new Color(0, 0, 0, 170));
     this.winConfettiRoot = mustChild(root, 'win/confetti');
     this.winPanel = mustChild(root, 'win/panel');
@@ -298,7 +289,6 @@ export class GameApp extends Component {
     }
 
     this.loseOverlay = mustChild(root, 'lose');
-    this.loseOverlay.active = false;
     this.paintRect(this.loseOverlay, -DESIGN_W / 2, -DESIGN_H / 2, DESIGN_W, DESIGN_H, new Color(90, 52, 26, 220));
     this.loseTitle = mustLabel(root, 'lose/h1');
     this.bindClick(mustChild(root, 'lose/keep'), () => {
@@ -320,22 +310,18 @@ export class GameApp extends Component {
     this.paintButton(mustChild(root, 'lose/menu'), 200, 56);
 
     this.keepOverlay = mustChild(root, 'keep');
-    this.keepOverlay.active = false;
   }
 
-  private async bindTools(parent: Node) {
-    const defs: { key: string; ui: string; tip: string; instant?: boolean }[] = [
-      { key: 'freeze', ui: 'Ice clock_booster', tip: '', instant: true },
-      { key: 'magnet', ui: 'Magnet_booster', tip: '点击一张图，自动完成' },
-      { key: 'slicer', ui: 'Saw_booster', tip: '点击要切开的方块' },
-      { key: 'teleport', ui: 'The bush_booster', tip: '选择两块交换位置' },
+  private bindTools(parent: Node) {
+    const defs: { key: string; tip: string; instant?: boolean }[] = [
+      { key: 'freeze', tip: '', instant: true },
+      { key: 'magnet', tip: '点击一张图，自动完成' },
+      { key: 'slicer', tip: '点击要切开的方块' },
+      { key: 'teleport', tip: '选择两块交换位置' },
     ];
     for (const d of defs) {
       const n = mustChild(parent, d.key);
       this.paintButton(n, 80, 80);
-      const icon = mustChild(n, 'icon');
-      const sf = await ResCache.uiBr(d.ui);
-      if (sf) setSprite(icon, sf);
       const badge = mustChild(n, 'cnt');
       const bg = badge.getComponent(Graphics) || badge.addComponent(Graphics);
       bg.clear();
@@ -427,8 +413,6 @@ export class GameApp extends Component {
     this.lobby.active = false;
     this.menu.active = false;
     this.game.active = true;
-    this.winOverlay.active = false;
-    this.loseOverlay.active = false;
     this.warned15 = false;
     this.board.tools = { freeze: 2, magnet: 2, slicer: 3, teleport: 1 };
     this.board.setActiveTool(null);
