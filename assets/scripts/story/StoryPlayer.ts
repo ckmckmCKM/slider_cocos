@@ -1,14 +1,22 @@
 import {
-  _decorator, BlockInputEvents, Component, EventTouch, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, tween,
+  _decorator, BlockInputEvents, Component, EventTouch, instantiate, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, tween,
 } from 'cc';
+import { DialogueView } from '../dialogue/DialogueView';
 import { DESIGN_H, DESIGN_W } from '../utils/Constants';
 import { ResCache } from '../utils/ResCache';
 import { fullWidget, makeNode, setSprite } from '../utils/UIFactory';
-import { isStorySubview, StoryStep, StoryStepSubview } from './StoryTypes';
+import { TipPopup } from '../ui/TipPopup';
+import {
+  isStoryDialogue, isStoryGameGate, isStorySubview,
+  StoryStep, StoryStepDialogue, StoryStepGameGate, StoryStepSubview,
+} from './StoryTypes';
 
 const { ccclass } = _decorator;
 
 const FADE_SEC = 0.28;
+const GATE_BTN_SIZE = 200;
+const GATE_BTN_MARGIN_X = 120;
+const GATE_BTN_MARGIN_Y = 140;
 
 @ccclass('StoryPlayer')
 export class StoryPlayer extends Component {
@@ -27,6 +35,14 @@ export class StoryPlayer extends Component {
   private _subOpacity!: UIOpacity;
   private _subBg!: Node;
   private _subIcon!: Node;
+  private _dialogueView: DialogueView | null = null;
+  private _tipPopup: TipPopup | null = null;
+  private _gateRoot: Node | null = null;
+  private _gateTapCatcher: Node | null = null;
+  private _gateBtn: Node | null = null;
+  private _gateActive = false;
+  private _gateStep: StoryStepGameGate | null = null;
+  private _onGameRequest: ((level: number, onWin: () => void) => void) | null = null;
   private _onFinished: (() => void) | null = null;
 
   onLoad() {
@@ -66,9 +82,17 @@ export class StoryPlayer extends Component {
 
   onDestroy() {
     this.node.off(Node.EventType.TOUCH_END, this.onTap, this);
+    if (this._gateTapCatcher) {
+      this._gateTapCatcher.off(Node.EventType.TOUCH_END, this.onGateBgTap, this);
+    }
     Tween.stopAllByTarget(this._frameAOpacity);
     Tween.stopAllByTarget(this._frameBOpacity);
     Tween.stopAllByTarget(this._subOpacity);
+  }
+
+  /** 注册剧情内请求进入关卡的回调（由 GameApp 注入） */
+  setGameRequestHandler(handler: ((level: number, onWin: () => void) => void) | null) {
+    this._onGameRequest = handler;
   }
 
   /** 开始播放指定剧情（默认 story1） */
@@ -84,6 +108,8 @@ export class StoryPlayer extends Component {
     this._frameAOpacity.opacity = 255;
     this._frameBOpacity.opacity = 255;
     this._subRoot.active = false;
+    this.hideDialogue();
+    this.hideGameGate();
 
     const cfg = await ResCache.loadStoryConfig(storyName);
     if (!cfg || !cfg.steps.length) {
@@ -100,6 +126,8 @@ export class StoryPlayer extends Component {
     Tween.stopAllByTarget(this._frameAOpacity);
     Tween.stopAllByTarget(this._frameBOpacity);
     Tween.stopAllByTarget(this._subOpacity);
+    this.hideDialogue();
+    this.hideGameGate();
     this.node.active = false;
     this._busy = false;
     this._steps = [];
@@ -116,6 +144,12 @@ export class StoryPlayer extends Component {
   private onTap(e: EventTouch) {
     e.propagationStopped = true;
     if (this._busy || !this.node.active) return;
+    if (this._dialogueView?.isOpen()) return;
+    if (this._tipPopup?.isOpen()) return;
+    if (this._gateActive) {
+      void this.showStoryTip(this._gateStep?.tip ?? '123');
+      return;
+    }
     void this.next();
   }
 
@@ -131,9 +165,17 @@ export class StoryPlayer extends Component {
     const nextIndex = this._index + 1;
     const next = this._steps[nextIndex];
 
-    if (isStorySubview(next)) {
+    if (isStoryDialogue(next)) {
+      this._index = nextIndex;
+      await this.presentDialogue(next);
+    } else if (isStoryGameGate(next)) {
+      this._index = nextIndex;
+      await this.presentGameGate(next);
+    } else if (isStorySubview(next)) {
       this._index = nextIndex;
       await this.presentSubview(next);
+    } else if (isStoryDialogue(prev)) {
+      await this.leaveDialogueToStep(nextIndex);
     } else if (isStorySubview(prev)) {
       await this.fadeOpacity(this._subOpacity, 0);
       this._subRoot.active = false;
@@ -150,8 +192,12 @@ export class StoryPlayer extends Component {
 
   private async presentStep(index: number, isFirst = false) {
     const step = this._steps[index];
-    if (isStorySubview(step)) {
-      if (!isFirst && !isStorySubview(this._steps[index - 1])) {
+    if (isStoryDialogue(step)) {
+      await this.presentDialogue(step);
+    } else if (isStoryGameGate(step)) {
+      await this.presentGameGate(step);
+    } else if (isStorySubview(step)) {
+      if (!isFirst && !isStorySubview(this._steps[index - 1]) && !isStoryDialogue(this._steps[index - 1])) {
         await this.presentSubview(step);
         return;
       }
@@ -179,6 +225,8 @@ export class StoryPlayer extends Component {
   private async fadeInFrame(name: string) {
     this.logStep(this._index);
     this._subRoot.active = false;
+    this.hideDialogue();
+    this.hideGameGate();
     const front = this.frontFrame();
     const sf = await ResCache.storyStepSprite(this._storyName, name);
     this.applyFullscreenSprite(front.node, sf);
@@ -191,6 +239,8 @@ export class StoryPlayer extends Component {
   private async crossfadeFrame(name: string) {
     this.logStep(this._index);
     this._subRoot.active = false;
+    this.hideDialogue();
+    this.hideGameGate();
     this._frameLayer.active = true;
 
     const sf = await ResCache.storyStepSprite(this._storyName, name);
@@ -228,6 +278,8 @@ export class StoryPlayer extends Component {
   /** 二级界面叠在一级之上 */
   private async presentSubview(step: StoryStepSubview) {
     this.logStep(this._index);
+    this.hideDialogue();
+    this.hideGameGate();
     this._frameLayer.active = true;
     this.frontFrame().node.active = true;
     this._subRoot.active = true;
@@ -243,6 +295,214 @@ export class StoryPlayer extends Component {
 
     this._subOpacity.opacity = 0;
     await this.fadeOpacity(this._subOpacity, 255);
+  }
+
+  /** 一级界面 + 游戏入口：通关后继续剧情 */
+  private async presentGameGate(step: StoryStepGameGate): Promise<void> {
+    this.logStep(this._index);
+    this.hideDialogue();
+    this._subRoot.active = false;
+    this._gateStep = step;
+    this._gateActive = true;
+
+    const sf = await ResCache.storyStepSprite(this._storyName, step.frame);
+    const front = this.frontFrame();
+    this.applyFullscreenSprite(front.node, sf);
+    front.node.active = true;
+    front.opacity.opacity = 255;
+    this._frameLayer.active = true;
+
+    await this.setupGameGateButton(step);
+  }
+
+  /** 关卡通关后由 GameApp 回调 */
+  completeGameGate() {
+    if (!this._gateActive) return;
+    this._gateActive = false;
+    this._gateStep = null;
+    this.hideGameGateButton();
+
+    const nextIdx = this._index + 1;
+    if (nextIdx >= this._steps.length) {
+      this.finish();
+      return;
+    }
+    void this.leaveDialogueToStep(nextIdx);
+  }
+
+  private onGateBgTap(e: EventTouch) {
+    e.propagationStopped = true;
+    if (!this._gateActive) return;
+    void this.showStoryTip(this._gateStep?.tip ?? '123');
+  }
+
+  private async setupGameGateButton(step: StoryStepGameGate) {
+    if (!this._gateRoot) {
+      this._gateRoot = makeNode('gameGateLayer', this.node, DESIGN_W, DESIGN_H);
+      fullWidget(this._gateRoot);
+    }
+    this._gateRoot.active = true;
+
+    if (!this._gateTapCatcher) {
+      this._gateTapCatcher = makeNode('gateTapCatcher', this._gateRoot, DESIGN_W, DESIGN_H);
+      fullWidget(this._gateTapCatcher);
+      this._gateTapCatcher.on(Node.EventType.TOUCH_END, this.onGateBgTap, this);
+    }
+    this._gateTapCatcher.active = true;
+
+    if (this._gateBtn) {
+      this._gateBtn.off(Node.EventType.TOUCH_END);
+      this._gateBtn.destroy();
+      this._gateBtn = null;
+    }
+
+    const btnName = step.btn || 'gametubiao';
+    const sf = await ResCache.storyStepSprite(this._storyName, btnName);
+    const btn = makeNode('gameEntryBtn', this._gateRoot, GATE_BTN_SIZE, GATE_BTN_SIZE);
+    btn.setPosition(
+      DESIGN_W / 2 - GATE_BTN_MARGIN_X,
+      -DESIGN_H / 2 + GATE_BTN_MARGIN_Y,
+      0,
+    );
+    if (sf) {
+      setSprite(btn, sf, Sprite.SizeMode.TRIMMED);
+      const ut = btn.getComponent(UITransform);
+      if (ut) {
+        const maxDim = Math.max(sf.width, sf.height);
+        const scale = GATE_BTN_SIZE / maxDim;
+        btn.setScale(scale, scale, 1);
+      }
+    }
+    btn.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      if (!this._gateActive || !this._onGameRequest) {
+        console.error('game gate handler missing');
+        return;
+      }
+      this._onGameRequest(step.level, () => this.completeGameGate());
+    });
+    this._gateBtn = btn;
+    this.syncOverlaySiblingOrder();
+    this._gateTapCatcher.setSiblingIndex(0);
+    btn.setSiblingIndex(1);
+  }
+
+  /** gameGateLayer 在 Tip 之上（提示不挡住游戏入口） */
+  private syncOverlaySiblingOrder() {
+    const tipNode = this._tipPopup?.node;
+    const gateNode = this._gateRoot;
+    const tipOnTree = tipNode?.parent === this.node;
+    const gateOnTree = gateNode?.parent === this.node;
+
+    if (tipOnTree && gateOnTree) {
+      gateNode!.setSiblingIndex(this.node.children.length - 1);
+      tipNode!.setSiblingIndex(this.node.children.length - 2);
+    } else if (gateOnTree && gateNode?.active) {
+      gateNode.setSiblingIndex(this.node.children.length - 1);
+    } else if (tipOnTree) {
+      tipNode!.setSiblingIndex(this.node.children.length - 1);
+    }
+  }
+
+  private hideGameGateButton() {
+    if (this._gateBtn) {
+      this._gateBtn.off(Node.EventType.TOUCH_END);
+      this._gateBtn.destroy();
+      this._gateBtn = null;
+    }
+    if (this._gateRoot) this._gateRoot.active = false;
+    if (this._gateTapCatcher) this._gateTapCatcher.active = false;
+  }
+
+  private hideGameGate() {
+    this._gateActive = false;
+    this._gateStep = null;
+    this.hideGameGateButton();
+    if (this._tipPopup?.isOpen()) this._tipPopup.hide();
+  }
+
+  private async showStoryTip(text: string) {
+    const tip = await this.ensureTipPopup();
+    if (!tip) return;
+    tip.showTip(text);
+    this.syncOverlaySiblingOrder();
+  }
+
+  private async ensureTipPopup(): Promise<TipPopup | null> {
+    if (this._tipPopup) return this._tipPopup;
+    const prefab = await ResCache.loadComPrefab('prefab/Tip');
+    if (!prefab) {
+      console.error('Tip prefab missing in com bundle');
+      return null;
+    }
+    const node = instantiate(prefab);
+    node.name = 'Tip';
+    this.node.addChild(node);
+    fullWidget(node);
+    node.active = false;
+    this._tipPopup = node.getComponent(TipPopup) || node.addComponent(TipPopup);
+    return this._tipPopup;
+  }
+
+  /** 通用对话弹窗（com/duihuakuang + mingzi），叠在当前一级图之上 */
+  private async presentDialogue(step: StoryStepDialogue): Promise<void> {
+    this.logStep(this._index);
+    this._frameLayer.active = true;
+    this.frontFrame().node.active = true;
+
+    const view = await this.ensureDialogueView();
+    if (!view) return;
+
+    return new Promise((resolve) => {
+      view.show(step.speaker, step.text, () => {
+        const nextIdx = this._index + 1;
+        if (nextIdx >= this._steps.length) {
+          this.finish();
+          resolve();
+          return;
+        }
+        void this.leaveDialogueToStep(nextIdx).then(() => resolve());
+      });
+    });
+  }
+
+  /** 关闭对话并展示后续剧情步 */
+  private async leaveDialogueToStep(nextIndex: number): Promise<void> {
+    this.hideDialogue();
+    this.hideGameGate();
+    this._index = nextIndex;
+    const step = this._steps[nextIndex];
+    if (isStorySubview(step)) {
+      await this.presentSubview(step);
+    } else if (isStoryGameGate(step)) {
+      await this.presentGameGate(step);
+    } else if (isStoryDialogue(step)) {
+      await this.presentDialogue(step);
+    } else {
+      await this.crossfadeFrame(step as string);
+    }
+  }
+
+  private async ensureDialogueView(): Promise<DialogueView | null> {
+    if (this._dialogueView) return this._dialogueView;
+    const prefab = await ResCache.loadComPrefab('prefab/Dialogue');
+    if (!prefab) {
+      console.error('Dialogue prefab missing in com bundle');
+      return null;
+    }
+    const node = instantiate(prefab);
+    node.name = 'Dialogue';
+    this.node.addChild(node);
+    fullWidget(node);
+    node.active = false;
+    this._dialogueView = node.getComponent(DialogueView) || node.addComponent(DialogueView);
+    return this._dialogueView;
+  }
+
+  private hideDialogue() {
+    if (this._dialogueView) {
+      this._dialogueView.hide();
+    }
   }
 
   private applyFullscreenSprite(node: Node, sf: SpriteFrame | null) {
@@ -276,6 +536,14 @@ export class StoryPlayer extends Component {
     if (isStorySubview(step)) {
       console.log(
         `[Story:${this._storyName}] step ${index}: subview bg=sprite/step/${step.bg}, icon=sprite/step/${step.icon}`,
+      );
+    } else if (isStoryDialogue(step)) {
+      console.log(
+        `[Story:${this._storyName}] step ${index}: dialogue speaker="${step.speaker}" text="${step.text}" (com/duihuakuang, com/mingzi)`,
+      );
+    } else if (isStoryGameGate(step)) {
+      console.log(
+        `[Story:${this._storyName}] step ${index}: gameGate frame=sprite/step/${step.frame}, btn=sprite/step/${step.btn || 'gametubiao'}, level=${step.level}`,
       );
     } else {
       console.log(`[Story:${this._storyName}] step ${index}: sprite/step/${step}`);

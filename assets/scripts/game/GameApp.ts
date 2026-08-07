@@ -68,6 +68,7 @@ export class GameApp extends Component {
   private toastTimer = 0;
   private menuPage = 0;
   private readonly pageSize = 50;
+  private _storyGameCallback: (() => void) | null = null;
 
   async onLoad() {
     view.setDesignResolutionSize(DESIGN_W, DESIGN_H, ResolutionPolicy.SHOW_ALL);
@@ -426,9 +427,23 @@ export class GameApp extends Component {
     this.menu.active = false;
     this.game.active = false;
     if (this.board) this.board.running = false;
+    this._storyGameCallback = null;
+    this.storyPlayer.setGameRequestHandler((level, onWin) => {
+      void this.enterGameFromStory(level, onWin);
+    });
     await this.storyPlayer.play(storyName, () => {
+      this.storyPlayer.setGameRequestHandler(null);
       this.showLobby();
     });
+  }
+
+  /** 剧情中进入关卡，通关后回到剧情继续 */
+  private async enterGameFromStory(level: number, onWin: () => void) {
+    this._storyGameCallback = onWin;
+    await this.enterGame(level);
+    if (!this.game.active) {
+      this._storyGameCallback = null;
+    }
   }
 
   private async enterGame(idx: number) {
@@ -521,6 +536,17 @@ export class GameApp extends Component {
   }
 
   private onWin() {
+    if (this._storyGameCallback) {
+      const cb = this._storyGameCallback;
+      this._storyGameCallback = null;
+      SoundMgr.play('win');
+      this.saveProgress(this.board.levelIndex + 1);
+      this.game.active = false;
+      if (this.board) this.board.running = false;
+      this.storyRoot.active = true;
+      cb();
+      return;
+    }
     SoundMgr.play('win');
     this.saveProgress(this.board.levelIndex + 1);
     this.winText.string = `第 ${this.board.levelIndex} 关完成！`;

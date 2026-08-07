@@ -3,13 +3,30 @@
   "steps": [
     "biaoti",
     "1",
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "一场婚礼，就拍四张照片，这报酬足够我的照相馆继续经营下去……"
+    },
     "2",
+    {
+      "type": "dialogue",
+      "speaker": "我",
+      "text": "不过这沈家子时结婚，倒也是头一次见。"
+    },
     "3",
     "4",
     {
       "type": "subview",
       "bg": "4-1zhitiaoheidi",
       "icon": "4-1zhitiao"
+    },
+    {
+      "type": "gameGate",
+      "frame": "3",
+      "btn": "gametubiao",
+      "level": 1,
+      "tip": "需要找到钥匙才能进入"
     },
     {
       "type": "subview",

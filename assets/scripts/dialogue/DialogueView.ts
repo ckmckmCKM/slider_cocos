@@ -1,12 +1,15 @@
 import {
-  _decorator, Component, Label, Node, Sprite, UITransform, BlockInputEvents, EventTouch,
+  _decorator, Label, Node, Sprite, EventTouch,
 } from 'cc';
 import { ResCache } from '../utils/ResCache';
+import { PopupBase } from '../ui/PopupBase';
 
 const { ccclass, property } = _decorator;
 
+const ADVANCE_AFTER_SKIP_SEC = 0.2;
+
 @ccclass('DialogueView')
-export class DialogueView extends Component {
+export class DialogueView extends PopupBase {
   @property(Label)
   speakerLabel: Label | null = null;
 
@@ -24,32 +27,35 @@ export class DialogueView extends Component {
   private _typing = false;
   private _typeAcc = 0;
   private _charsPerSecond = 18;
-  private _onComplete: (() => void) | null = null;
-  private _onAdvance: (() => void) | null = null;
+  private _onTypingComplete: (() => void) | null = null;
+  private _pendingAdvance = false;
 
   onLoad() {
-    this.bindNodes();
+    super.onLoad();
     this.node.on(Node.EventType.TOUCH_END, this.onTap, this);
-    const block = this.node.getComponent(BlockInputEvents) || this.node.addComponent(BlockInputEvents);
-    block.enabled = true;
     this.loadArt();
   }
 
   onDestroy() {
     this.node.off(Node.EventType.TOUCH_END, this.onTap, this);
+    this.cancelPendingAdvance();
   }
 
-  private bindNodes() {
+  protected bindNodes() {
+    super.bindNodes();
+    if (!this.panelNode) this.panelNode = this.node.getChildByName('box');
+    if (!this.contentNode) this.contentNode = this.node.getChildByName('content');
     if (!this.speakerLabel) {
       const n = this.node.getChildByName('namePlate')?.getChildByName('speaker');
       this.speakerLabel = n?.getComponent(Label) || null;
     }
     if (!this.contentLabel) {
-      const n = this.node.getChildByName('content');
+      const n = this.contentNode || this.node.getChildByName('content');
       this.contentLabel = n?.getComponent(Label) || null;
     }
     if (!this.boxSprite) {
-      this.boxSprite = this.node.getChildByName('box')?.getComponent(Sprite) || null;
+      this.boxSprite = this.panelNode?.getComponent(Sprite)
+        || this.node.getChildByName('box')?.getComponent(Sprite) || null;
     }
     if (!this.namePlateSprite) {
       this.namePlateSprite = this.node.getChildByName('namePlate')?.getComponent(Sprite) || null;
@@ -59,43 +65,38 @@ export class DialogueView extends Component {
   private async loadArt() {
     const boxSf = await ResCache.comSprite('duihuakuang');
     const nameSf = await ResCache.comSprite('mingzi');
-    if (boxSf && this.boxSprite) {
-      this.boxSprite.sizeMode = Sprite.SizeMode.TRIMMED;
+    if (boxSf && this.boxSprite && !this.boxSprite.spriteFrame) {
       this.boxSprite.spriteFrame = boxSf;
-      const ut = this.boxSprite.node.getComponent(UITransform);
-      if (ut) ut.setContentSize(boxSf.width, boxSf.height);
     }
-    if (nameSf && this.namePlateSprite) {
-      this.namePlateSprite.sizeMode = Sprite.SizeMode.TRIMMED;
+    if (nameSf && this.namePlateSprite && !this.namePlateSprite.spriteFrame) {
       this.namePlateSprite.spriteFrame = nameSf;
-      const ut = this.namePlateSprite.node.getComponent(UITransform);
-      if (ut) ut.setContentSize(nameSf.width, nameSf.height);
     }
   }
 
-  /** 显示对话：说话人 + 全文（逐字打出） */
-  show(speaker: string, text: string, onComplete?: () => void) {
-    this.node.active = true;
+  /** 显示对话：说话人 + 全文（逐字打出）；onClose 在玩家点击关闭时触发 */
+  show(speaker: string, text: string, onClose?: () => void) {
+    this.cancelPendingAdvance();
     if (this.speakerLabel) this.speakerLabel.string = speaker;
     this._fullText = text || '';
     this._charIndex = 0;
     this._typing = this._fullText.length > 0;
     this._typeAcc = 0;
-    this._onComplete = onComplete || null;
+    this._onTypingComplete = null;
     if (this.contentLabel) this.contentLabel.string = '';
-    if (!this._typing && this._onComplete) this._onComplete();
-  }
-
-  /** 点击继续时若已打完，触发 advance */
-  setAdvanceHandler(handler: (() => void) | null) {
-    this._onAdvance = handler;
+    this.open(onClose);
   }
 
   hide() {
-    this.node.active = false;
+    this.cancelPendingAdvance();
     this.stopTyping();
-    this._onAdvance = null;
-    this._onComplete = null;
+    this._onTypingComplete = null;
+    super.hide();
+  }
+
+  protected onClose() {
+    this.cancelPendingAdvance();
+    this.stopTyping();
+    this._onTypingComplete = null;
   }
 
   isTyping() {
@@ -128,11 +129,30 @@ export class DialogueView extends Component {
 
   private onTap(e: EventTouch) {
     e.propagationStopped = true;
+    if (!this.isOpen()) return;
+    if (this._pendingAdvance) return;
     if (this._typing) {
       this.skipTyping();
+      this.schedulePendingAdvance();
       return;
     }
-    if (this._onAdvance) this._onAdvance();
+    this.close();
+  }
+
+  private schedulePendingAdvance() {
+    this.cancelPendingAdvance();
+    this._pendingAdvance = true;
+    this.scheduleOnce(this.onPendingAdvance, ADVANCE_AFTER_SKIP_SEC);
+  }
+
+  private onPendingAdvance() {
+    this._pendingAdvance = false;
+    this.close();
+  }
+
+  private cancelPendingAdvance() {
+    this.unschedule(this.onPendingAdvance);
+    this._pendingAdvance = false;
   }
 
   private stopTyping() {
@@ -142,9 +162,9 @@ export class DialogueView extends Component {
 
   private finishTyping() {
     this.stopTyping();
-    if (this._onComplete) {
-      const fn = this._onComplete;
-      this._onComplete = null;
+    if (this._onTypingComplete) {
+      const fn = this._onTypingComplete;
+      this._onTypingComplete = null;
       fn();
     }
   }
