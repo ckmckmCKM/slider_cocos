@@ -10,6 +10,7 @@ import { SoundMgr } from '../utils/SoundMgr';
 import {
   addLabel, fullWidget, makeButton, makeImageButton, makeNode, setSprite,
 } from '../utils/UIFactory';
+import { StoryPlayer } from '../story/StoryPlayer';
 
 const { ccclass } = _decorator;
 
@@ -41,6 +42,8 @@ export class GameApp extends Component {
   private lobby!: Node;
   private menu!: Node;
   private game!: Node;
+  private storyRoot!: Node;
+  private storyPlayer!: StoryPlayer;
   private boardRoot!: Node;
   private board!: BoardController;
 
@@ -111,6 +114,17 @@ export class GameApp extends Component {
     canvas.addChild(this.game);
     fullWidget(this.game);
     await this.bindGame(this.game);
+
+    this.storyRoot = makeNode('Story', canvas, DESIGN_W, DESIGN_H);
+    fullWidget(this.storyRoot);
+    this.storyRoot.active = false;
+    const storyBg = makeNode('bg', this.storyRoot, DESIGN_W, DESIGN_H);
+    fullWidget(storyBg);
+    const g = storyBg.addComponent(Graphics);
+    g.fillColor = colorFromHex('#000000');
+    g.rect(-DESIGN_W / 2, -DESIGN_H / 2, DESIGN_W, DESIGN_H);
+    g.fill();
+    this.storyPlayer = this.storyRoot.addComponent(StoryPlayer);
   }
 
   private async buildLobby(root: Node) {
@@ -128,31 +142,36 @@ export class GameApp extends Component {
     const content = makeNode('content', root, DESIGN_W, DESIGN_H);
     fullWidget(content);
 
-    const logo = makeNode('logo', content, DESIGN_W * 0.82, 280);
-    logo.setPosition(0, 280, 0);
+    const logo = makeNode('logo', content, DESIGN_W * 0.82, 403);
+    logo.setPosition(0, 403, 0);
     const logoSf = await ResCache.ui('logo');
     if (logoSf) setSprite(logo, logoSf);
-    else addLabel(logo, 'Block Reveal', 48, '#5b341a');
+    else addLabel(logo, 'Block Reveal', 69, '#5b341a');
 
-    const btnBox = makeNode('btns', content, DESIGN_W, 200);
-    btnBox.setPosition(0, -140, 0);
+    const btnBox = makeNode('btns', content, DESIGN_W, 400);
+    btnBox.setPosition(0, -240, 0);
 
     const anLv = await ResCache.ui('an_lv');
     const anLan = await ResCache.ui('an_lan');
-    makeImageButton(btnBox, 'start', 420, 90, anLv, '开始游戏', () => {
+    makeImageButton(btnBox, 'start', 605, 130, anLv, '开始游戏', () => {
       SoundMgr.play('click');
       SoundMgr.startBgm();
       this.enterGame(this.loadProgress());
-    }).setPosition(0, 50, 0);
+    }).setPosition(0, 72, 0);
 
-    makeImageButton(btnBox, 'select', 420, 90, anLan, '选择关卡', () => {
+    makeImageButton(btnBox, 'select', 605, 130, anLan, '选择关卡', () => {
       SoundMgr.play('click');
       this.showMenu();
-    }).setPosition(0, -60, 0);
+    }).setPosition(0, -86, 0);
 
-    const ver = makeNode('ver', root, 400, 30);
-    ver.setPosition(0, -DESIGN_H / 2 + 40, 0);
-    addLabel(ver, 'Block Reveal · Cocos 1:1', 18, '#5b341a99');
+    makeButton(btnBox, 'story', 420, 90, '剧情播放', () => {
+      SoundMgr.play('click');
+      void this.enterStory('story1');
+    }).setPosition(0, -220, 0);
+
+    const ver = makeNode('ver', root, 576, 43);
+    ver.setPosition(0, -DESIGN_H / 2 + 58, 0);
+    addLabel(ver, 'Block Reveal · Cocos 1:1', 26, '#5b341a99');
   }
 
   private async buildMenu(root: Node) {
@@ -161,30 +180,30 @@ export class GameApp extends Component {
     const bgSf = await ResCache.ui('gk_bj');
     if (bgSf) setSprite(bg, bgSf);
 
-    const top = makeNode('top', root, DESIGN_W, 100);
-    top.setPosition(0, DESIGN_H / 2 - 70, 0);
-    addLabel(makeNode('title', top, 400, 50), '选择关卡', 36, '#5b341a');
+    const top = makeNode('top', root, DESIGN_W, 144);
+    top.setPosition(0, DESIGN_H / 2 - 101, 0);
+    addLabel(makeNode('title', top, 576, 72), '选择关卡', 52, '#5b341a');
 
-    const scroll = makeNode('grid', root, DESIGN_W - 40, DESIGN_H - 300);
-    scroll.setPosition(0, 10, 0);
+    const scroll = makeNode('grid', root, DESIGN_W - 58, DESIGN_H - 432);
+    scroll.setPosition(0, 14, 0);
     (root as any)._levelGrid = scroll;
 
-    const pager = makeNode('pager', root, DESIGN_W, 50);
-    pager.setPosition(0, -DESIGN_H / 2 + 140, 0);
-    makeButton(pager, 'prev', 120, 44, '上一页', () => {
+    const pager = makeNode('pager', root, DESIGN_W, 72);
+    pager.setPosition(0, -DESIGN_H / 2 + 202, 0);
+    makeButton(pager, 'prev', 173, 63, '上一页', () => {
       if (this.menuPage > 0) { this.menuPage--; this.refreshLevelGrid(); }
-    }).setPosition(-160, 0, 0);
-    const pageLbl = makeNode('page', pager, 160, 40);
-    (root as any)._pageLbl = addLabel(pageLbl, '1', 22, '#5b341a');
-    makeButton(pager, 'next', 120, 44, '下一页', () => {
+    }).setPosition(-230, 0, 0);
+    const pageLbl = makeNode('page', pager, 230, 58);
+    (root as any)._pageLbl = addLabel(pageLbl, '1', 32, '#5b341a');
+    makeButton(pager, 'next', 173, 63, '下一页', () => {
       const maxPage = Math.ceil(MAX_LEVEL / this.pageSize) - 1;
       if (this.menuPage < maxPage) { this.menuPage++; this.refreshLevelGrid(); }
-    }).setPosition(160, 0, 0);
+    }).setPosition(230, 0, 0);
 
-    makeButton(root, 'back', 200, 56, '‹ 返回大厅', () => {
+    makeButton(root, 'back', 288, 81, '‹ 返回大厅', () => {
       SoundMgr.play('click');
       this.showLobby();
-    }).setPosition(0, -DESIGN_H / 2 + 70, 0);
+    }).setPosition(0, -DESIGN_H / 2 + 101, 0);
   }
 
   private refreshLevelGrid() {
@@ -193,9 +212,9 @@ export class GameApp extends Component {
     grid.removeAllChildren();
     this.maxLevel = this.loadProgress();
     const cols = 5;
-    const cellW = 110, cellH = 64, gap = 10;
+    const cellW = 158, cellH = 92, gap = 14;
     const startX = -((cols - 1) * (cellW + gap)) / 2;
-    const startY = (DESIGN_H - 360) / 2 - 20;
+    const startY = (DESIGN_H - 518) / 2 - 29;
     const from = this.menuPage * this.pageSize + 1;
     const to = Math.min(MAX_LEVEL, from + this.pageSize - 1);
     const pageLbl: Label | undefined = (this.menu as any)._pageLbl;
@@ -210,14 +229,14 @@ export class GameApp extends Component {
       btn.setPosition(startX + col * (cellW + gap), startY - row * (cellH + gap), 0);
       const g = btn.addComponent(Graphics);
       g.fillColor = locked ? colorFromHex('#c8b086') : colorFromHex('#f2c97e');
-      g.roundRect(-cellW / 2, -cellH / 2, cellW, cellH, 12);
+      g.roundRect(-cellW / 2, -cellH / 2, cellW, cellH, 17);
       g.fill();
       g.strokeColor = colorFromHex('#c98a4b');
-      g.lineWidth = 2;
-      g.roundRect(-cellW / 2, -cellH / 2, cellW, cellH, 12);
+      g.lineWidth = 3;
+      g.roundRect(-cellW / 2, -cellH / 2, cellW, cellH, 17);
       g.stroke();
-      const txt = makeNode('txt', btn, cellW - 8, cellH - 8);
-      addLabel(txt, String(idx), 26, locked ? '#8a7355' : '#7a4518');
+      const txt = makeNode('txt', btn, cellW - 12, cellH - 12);
+      addLabel(txt, String(idx), 37, locked ? '#8a7355' : '#7a4518');
       btn.on(Node.EventType.TOUCH_END, () => {
         if (locked) { this.showToast('先通关前面的关卡解锁'); return; }
         SoundMgr.play('click');
@@ -241,38 +260,38 @@ export class GameApp extends Component {
     this.hudProgress = mustLabel(root, 'HUD/prog/txt');
     this.goalBar = mustChild(root, 'HUD/goals');
 
-    this.paintRoundRect(mustChild(root, 'HUD/timer'), -85, -24, 170, 48, 22, new Color(70, 40, 18, 230));
-    this.paintRoundRect(mustChild(root, 'HUD/prog'), -70, -22, 140, 44, 12, new Color(255, 240, 210, 230));
-    this.paintRoundRect(this.goalBar, -(DESIGN_W - 60) / 2, -32, DESIGN_W - 60, 64, 12, new Color(120, 70, 30, 55));
+    this.paintRoundRect(mustChild(root, 'HUD/timer'), -122, -35, 245, 69, 32, new Color(70, 40, 18, 230));
+    this.paintRoundRect(mustChild(root, 'HUD/prog'), -101, -32, 202, 63, 17, new Color(255, 240, 210, 230));
+    this.paintRoundRect(this.goalBar, -(DESIGN_W - 86) / 2, -46, DESIGN_W - 86, 92, 17, new Color(120, 70, 30, 55));
 
     const tools = mustChild(root, 'tools');
     this.bindTools(tools);
 
     const tipN = mustChild(root, 'tip');
     this.tip = mustLabel(root, 'tip/txt');
-    this.paintRoundRect(tipN, -310, -20, 620, 40, 14, new Color(90, 52, 26, 170));
+    this.paintRoundRect(tipN, -446, -29, 893, 58, 20, new Color(90, 52, 26, 170));
 
     this.toastNode = mustChild(root, 'toast');
     this.toast = mustLabel(root, 'toast/txt');
-    this.paintRoundRect(this.toastNode, -180, -28, 360, 56, 14, new Color(90, 52, 26, 230));
+    this.paintRoundRect(this.toastNode, -259, -40, 518, 81, 20, new Color(90, 52, 26, 230));
 
     this.winOverlay = mustChild(root, 'win');
     this.paintRect(this.winOverlay, -DESIGN_W / 2, -DESIGN_H / 2, DESIGN_W, DESIGN_H, new Color(0, 0, 0, 170));
     this.winConfettiRoot = mustChild(root, 'win/confetti');
     this.winPanel = mustChild(root, 'win/panel');
-    this.paintRoundRect(this.winPanel, -260, -210, 520, 420, 24, new Color(255, 255, 255, 18));
+    this.paintRoundRect(this.winPanel, -374, -302, 749, 605, 35, new Color(255, 255, 255, 18));
     {
       const h1Label = mustLabel(root, 'win/panel/h1');
       h1Label.enableOutline = true;
       h1Label.outlineColor = colorFromHex('#ffd54f');
-      h1Label.outlineWidth = 4;
+      h1Label.outlineWidth = 6;
       this.winText = mustLabel(root, 'win/panel/h2');
       const feat = mustChild(root, 'win/panel/feat');
-      this.paintRoundRect(feat, -160, -60, 320, 120, 16, new Color(0, 0, 0, 140));
+      this.paintRoundRect(feat, -230, -86, 461, 173, 23, new Color(0, 0, 0, 140));
       const fg = feat.getComponent(Graphics)!;
       fg.strokeColor = new Color(255, 255, 255, 80);
-      fg.lineWidth = 2;
-      fg.roundRect(-160, -60, 320, 120, 16);
+      fg.lineWidth = 3;
+      fg.roundRect(-230, -86, 461, 173, 23);
       fg.stroke();
       this.bindClick(mustChild(root, 'win/panel/next'), () => {
         SoundMgr.play('click');
@@ -284,8 +303,8 @@ export class GameApp extends Component {
         this.winOverlay.active = false;
         this.showLobby();
       });
-      this.paintButton(mustChild(root, 'win/panel/next'), 280, 72);
-      this.paintButton(mustChild(root, 'win/panel/home'), 200, 56);
+      this.paintButton(mustChild(root, 'win/panel/next'), 403, 104);
+      this.paintButton(mustChild(root, 'win/panel/home'), 288, 81);
     }
 
     this.loseOverlay = mustChild(root, 'lose');
@@ -305,9 +324,9 @@ export class GameApp extends Component {
       SoundMgr.play('click');
       this.showMenu();
     });
-    this.paintButton(mustChild(root, 'lose/keep'), 240, 64);
-    this.paintButton(mustChild(root, 'lose/retry'), 240, 64);
-    this.paintButton(mustChild(root, 'lose/menu'), 200, 56);
+    this.paintButton(mustChild(root, 'lose/keep'), 346, 92);
+    this.paintButton(mustChild(root, 'lose/retry'), 346, 92);
+    this.paintButton(mustChild(root, 'lose/menu'), 288, 81);
 
     this.keepOverlay = mustChild(root, 'keep');
   }
@@ -321,12 +340,12 @@ export class GameApp extends Component {
     ];
     for (const d of defs) {
       const n = mustChild(parent, d.key);
-      this.paintButton(n, 80, 80);
+      this.paintButton(n, 115, 115);
       const badge = mustChild(n, 'cnt');
       const bg = badge.getComponent(Graphics) || badge.addComponent(Graphics);
       bg.clear();
       bg.fillColor = colorFromHex('#e05030');
-      bg.circle(0, 0, 14);
+      bg.circle(0, 0, 20);
       bg.fill();
       const cnt = mustLabel(n, 'cnt/txt');
       this.toolNodes[d.key] = { node: n, cnt };
@@ -370,11 +389,11 @@ export class GameApp extends Component {
     const g = node.getComponent(Graphics) || node.addComponent(Graphics);
     g.clear();
     g.fillColor = colorFromHex('#f2c97e');
-    g.roundRect(-w / 2, -h / 2, w, h, 18);
+    g.roundRect(-w / 2, -h / 2, w, h, 26);
     g.fill();
     g.strokeColor = colorFromHex('#c98a4b');
-    g.lineWidth = 3;
-    g.roundRect(-w / 2, -h / 2, w, h, 18);
+    g.lineWidth = 4;
+    g.roundRect(-w / 2, -h / 2, w, h, 26);
     g.stroke();
   }
 
@@ -389,6 +408,7 @@ export class GameApp extends Component {
     this.lobby.active = true;
     this.menu.active = false;
     this.game.active = false;
+    if (this.storyRoot) this.storyRoot.active = false;
     if (this.board) this.board.running = false;
   }
 
@@ -396,8 +416,19 @@ export class GameApp extends Component {
     this.lobby.active = false;
     this.menu.active = true;
     this.game.active = false;
+    if (this.storyRoot) this.storyRoot.active = false;
     this.menuPage = Math.floor((this.loadProgress() - 1) / this.pageSize);
     this.refreshLevelGrid();
+  }
+
+  private async enterStory(storyName = 'story1') {
+    this.lobby.active = false;
+    this.menu.active = false;
+    this.game.active = false;
+    if (this.board) this.board.running = false;
+    await this.storyPlayer.play(storyName, () => {
+      this.showLobby();
+    });
   }
 
   private async enterGame(idx: number) {
@@ -413,6 +444,7 @@ export class GameApp extends Component {
     this.lobby.active = false;
     this.menu.active = false;
     this.game.active = true;
+    if (this.storyRoot) this.storyRoot.active = false;
     this.warned15 = false;
     this.board.tools = { freeze: 2, magnet: 2, slicer: 3, teleport: 1 };
     this.board.setActiveTool(null);
@@ -442,11 +474,11 @@ export class GameApp extends Component {
       ResCache.uiBr('UI_ingame_BG_Frame'),
       ResCache.uiBr('UI_ingame_BG_Frame_back'),
     ]);
-    const gap = 58;
+    const gap = 84;
     const startX = -((goals.length - 1) * gap) / 2;
     for (let i = 0; i < goals.length; i++) {
       const g = goals[i];
-      const item = makeNode('g', this.goalBar, 52, 52);
+      const item = makeNode('g', this.goalBar, 75, 75);
       item.setPosition(startX + i * gap, 0, 0);
       const frame = g.done ? goalFrameBack : goalFrame;
       if (frame) {
@@ -454,18 +486,18 @@ export class GameApp extends Component {
       } else {
         const bg = item.addComponent(Graphics);
         bg.fillColor = colorFromHex(g.done ? '#c8e6c9' : '#fff6e4');
-        bg.roundRect(-26, -26, 52, 52, 10);
+        bg.roundRect(-37, -37, 75, 75, 14);
         bg.fill();
         bg.strokeColor = colorFromHex(g.done ? '#43a047' : '#b87a3c');
-        bg.lineWidth = 2;
-        bg.roundRect(-26, -26, 52, 52, 10);
+        bg.lineWidth = 3;
+        bg.roundRect(-37, -37, 75, 75, 14);
         bg.stroke();
       }
       if (!g.done) {
         const sf = await ResCache.loadSprite(g.path);
-        if (sf) setSprite(makeNode('i', item, 34, 34), sf);
+        if (sf) setSprite(makeNode('i', item, 49, 49), sf);
       }
-      if (g.done) addLabel(makeNode('ok', item, 40, 24), '✓', 22, '#2e7d32');
+      if (g.done) addLabel(makeNode('ok', item, 58, 35), '✓', 32, '#2e7d32');
     }
   }
 
@@ -478,11 +510,11 @@ export class GameApp extends Component {
       const g = this.toolNodes[k].node.getComponent(Graphics)!;
       g.clear();
       g.fillColor = colorFromHex('#f2d19a');
-      g.roundRect(-40, -40, 80, 80, 18);
+      g.roundRect(-58, -58, 115, 115, 26);
       g.fill();
       g.strokeColor = colorFromHex(active ? '#e05030' : '#a86a32');
-      g.lineWidth = active ? 5 : 4;
-      g.roundRect(-40, -40, 80, 80, 18);
+      g.lineWidth = active ? 7 : 6;
+      g.roundRect(-58, -58, 115, 115, 26);
       g.stroke();
       this.toolNodes[k].node.setScale(left > 0 ? 1 : 0.85, left > 0 ? 1 : 0.85, 1);
     }
@@ -510,21 +542,21 @@ export class GameApp extends Component {
     for (const c of this.winConfettiRoot.children) c.destroy();
     const colors = ['#e53935', '#43a047', '#1e88e5', '#fdd835', '#8e24aa', '#fb8c00'];
     for (let i = 0; i < 28; i++) {
-      const n = makeNode(`c${i}`, this.winConfettiRoot, 8, 24);
+      const n = makeNode(`c${i}`, this.winConfettiRoot, 12, 35);
       const x = (Math.random() - 0.5) * DESIGN_W * 0.9;
-      const y = DESIGN_H / 2 + 40 + Math.random() * 80;
+      const y = DESIGN_H / 2 + 58 + Math.random() * 115;
       n.setPosition(x, y, 0);
       n.angle = Math.random() * 360;
       const g = n.addComponent(Graphics);
       g.fillColor = colorFromHex(colors[i % colors.length]);
-      g.rect(-4, -12, 8, 24);
+      g.rect(-6, -17, 12, 35);
       g.fill();
       const op = n.addComponent(UIOpacity);
       op.opacity = 230;
       const dur = 1.2 + Math.random() * 0.8;
       tween(n)
         .parallel(
-          tween().to(dur, { position: new Vec3(x + (Math.random() - 0.5) * 120, -DESIGN_H / 2 - 80, 0) }),
+          tween().to(dur, { position: new Vec3(x + (Math.random() - 0.5) * 173, -DESIGN_H / 2 - 115, 0) }),
           tween().by(dur, { angle: 180 + Math.random() * 360 }),
           tween(op).delay(dur * 0.55).to(dur * 0.45, { opacity: 0 }),
         )

@@ -4,6 +4,7 @@ import {
 import { LevelParser } from '../blocky/LevelParser';
 import { LevelConfig } from '../blocky/LevelTypes';
 import { LevelsMap } from './LevelTypes';
+import { StoryConfig } from '../story/StoryTypes';
 
 export class ResCache {
   private static _levels: LevelsMap | null = null;
@@ -13,6 +14,11 @@ export class ResCache {
   private static _maxBrLevel = 650;
   private static _gameBundle: AssetManager.Bundle | null = null;
   private static _gameBundleLoading: Promise<AssetManager.Bundle> | null = null;
+  private static _comBundle: AssetManager.Bundle | null = null;
+  private static _comBundleLoading: Promise<AssetManager.Bundle> | null = null;
+  private static _storyBundles = new Map<string, AssetManager.Bundle>();
+  private static _storyBundleLoading = new Map<string, Promise<AssetManager.Bundle>>();
+  private static _storyJson: Record<string, StoryConfig> = {};
 
   static maxBrLevel() { return this._maxBrLevel; }
 
@@ -32,6 +38,100 @@ export class ResCache {
       });
     });
     return this._gameBundleLoading;
+  }
+
+  /** 加载 com Asset Bundle（公共 UI / 对话等） */
+  static loadComBundle(): Promise<AssetManager.Bundle> {
+    if (this._comBundle) return Promise.resolve(this._comBundle);
+    if (this._comBundleLoading) return this._comBundleLoading;
+    this._comBundleLoading = new Promise((resolve, reject) => {
+      assetManager.loadBundle('com', (err, bundle) => {
+        this._comBundleLoading = null;
+        if (err || !bundle) {
+          reject(err || new Error('com bundle missing'));
+          return;
+        }
+        this._comBundle = bundle;
+        resolve(bundle);
+      });
+    });
+    return this._comBundleLoading;
+  }
+
+  /** com bundle 下图集，path 不含扩展名，如 duihuakuang / mingzi */
+  static async comSprite(name: string): Promise<SpriteFrame | null> {
+    const path = `sprite/${name}`;
+    if (this._sf[path]) return this._sf[path];
+    const bundle = await this.loadComBundle();
+    return this.loadSpriteFromBundle(bundle, path);
+  }
+
+  /** 加载剧情 Asset Bundle（如 story1） */
+  static loadStoryBundle(name = 'story1'): Promise<AssetManager.Bundle> {
+    const cached = this._storyBundles.get(name);
+    if (cached) return Promise.resolve(cached);
+    const loading = this._storyBundleLoading.get(name);
+    if (loading) return loading;
+    const p = new Promise<AssetManager.Bundle>((resolve, reject) => {
+      assetManager.loadBundle(name, (err, bundle) => {
+        this._storyBundleLoading.delete(name);
+        if (err || !bundle) {
+          reject(err || new Error(`${name} bundle missing`));
+          return;
+        }
+        this._storyBundles.set(name, bundle);
+        resolve(bundle);
+      });
+    });
+    this._storyBundleLoading.set(name, p);
+    return p;
+  }
+
+  /** 剧情顺序 JSON：bundle 根目录 story.json */
+  static async loadStoryConfig(name = 'story1'): Promise<StoryConfig | null> {
+    if (this._storyJson[name]) return this._storyJson[name];
+    const bundle = await this.loadStoryBundle(name);
+    return new Promise((resolve) => {
+      bundle.load('story', JsonAsset, (err, asset) => {
+        if (err || !asset) {
+          console.error('load story.json failed', name, err);
+          resolve(null);
+          return;
+        }
+        const data = asset.json as StoryConfig;
+        this._storyJson[name] = data;
+        resolve(data);
+      });
+    });
+  }
+
+  /** 剧情 step 图：sprite/step/{stepName} */
+  static async storyStepSprite(storyName: string, stepName: string): Promise<SpriteFrame | null> {
+    const path = `sprite/step/${stepName}`;
+    const key = `${storyName}:${path}`;
+    if (this._sf[key]) return this._sf[key];
+    const bundle = await this.loadStoryBundle(storyName);
+    const sf = await this.loadSpriteFromBundle(bundle, path);
+    if (sf) this._sf[key] = sf;
+    return sf;
+  }
+
+  /** com bundle 预制体，如 prefab/Dialogue */
+  static async loadComPrefab(path: string): Promise<Prefab | null> {
+    const key = `com:${path}`;
+    if (this._prefab[key]) return this._prefab[key];
+    const bundle = await this.loadComBundle();
+    return new Promise((resolve) => {
+      bundle.load(path, Prefab, (err, prefab) => {
+        if (err || !prefab) {
+          console.error('load com prefab failed', path, err);
+          resolve(null);
+          return;
+        }
+        this._prefab[key] = prefab;
+        resolve(prefab);
+      });
+    });
   }
 
   /** 旧版 all.json（兼容，仍在 resources） */
@@ -82,11 +182,8 @@ export class ResCache {
   }
 
   private static isGameAssetPath(path: string): boolean {
-    return path.startsWith('levels_br/')
-      || path.startsWith('pictures/')
-      || path.startsWith('icon/')
-      || path.startsWith('icon_bg/')
-      || path.startsWith('ui_br/')
+    return path.startsWith('sprite/')
+      || path.startsWith('levels_br/')
       || path.startsWith('prefab/')
       || path.startsWith('audio/');
   }
@@ -166,7 +263,7 @@ export class ResCache {
   static img(name: string) { return this.loadSprite(`img/${name}`); }
 
   static ui(name: string) { return this.loadSprite(`ui/${name}`); }
-  static uiBr(name: string) { return this.loadSprite(`ui_br/${name}`); }
+  static uiBr(name: string) { return this.loadSprite(`sprite/ui_br/${name}`); }
 
   /** game bundle 预制体，如 prefab/SliderGame */
   static async loadPrefab(path: string): Promise<Prefab | null> {

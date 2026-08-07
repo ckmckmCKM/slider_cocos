@@ -6,7 +6,7 @@ import {
   RollerDoorData, ShapePictureData, TunnelData, Vec2I, WallIceData, WoodenBoxData,
 } from './LevelTypes';
 
-/** 碎图底图默认资源（game/icon_bg/di_2_2） */
+/** 碎图底图默认资源（game/sprite/icon_bg/di_2_2） */
 export const DEFAULT_ICON_BG = 'di_2_2';
 
 /** 解析 Unity 恢复的 Lv_XXXX.txt（12 段 ^ 分隔） */
@@ -314,10 +314,10 @@ export function pictureResourcePath(nameFilePicture: string): string {
   // AssetPicture\Dong vat\3x3\meo → icon/meo
   const p = nameFilePicture.replace(/\\/g, '/');
   const base = p.split('/').pop() || p;
-  return `icon/${base}`;
+  return `sprite/icon/${base}`;
 }
 
-/** game/icon_bg 碎片底图路径（无扩展名） */
+/** game/sprite/icon_bg 碎片底图路径（无扩展名） */
 export function iconBgResourcePath(fileName: string): string {
-  return `icon_bg/${fileName}`;
+  return `sprite/icon_bg/${fileName}`;
 }

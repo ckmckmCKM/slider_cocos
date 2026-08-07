@@ -16,8 +16,8 @@
 | 内容 | 路径 |
 |------|------|
 | 650 关明文 | `assets/bundle/game/levels_br/Lv_XXXX.txt` |
-| 揭图资源 ~581 | `assets/bundle/game/pictures/**` |
-| UI / 机关图标 | `assets/bundle/game/ui_br/**` |
+| 揭图资源 ~581 | `assets/bundle/game/sprite/pictures/**` |
+| UI / 机关图标 | `assets/bundle/game/sprite/ui_br/**`（局内已用） |
 | 关卡解析器 | `assets/bundle/game/scripts/blocky/LevelParser.ts` |
 | 核心棋盘（逐图揭示） | `assets/bundle/game/scripts/blocky/BoardController.ts` |
 

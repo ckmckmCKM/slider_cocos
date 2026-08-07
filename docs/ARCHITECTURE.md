@@ -17,7 +17,7 @@
 | 核心玩法 | 滑动 Polyomino 方块，按 `listIndexPicture` 拼合完整图片即揭示过关 |
 | Unity 参考工程 | `d:\unityObj\blockNew`（IL2CPP，脚本体为空，仅作资源/格式参考） |
 
-**设计分辨率：** 750 × 1334（`SHOW_ALL`）
+**设计分辨率：** 1080 × 1920（`SHOW_ALL`）
 
 ---
 

@@ -40,11 +40,11 @@ export function setColorSprite(node: Node, color: Color) {
   return sp;
 }
 
-export function addLabel(node: Node, text: string, fontSize = 28, color = '#5b341a'): Label {
+export function addLabel(node: Node, text: string, fontSize = 40, color = '#5b341a'): Label {
   const lb = node.addComponent(Label);
   lb.string = text;
   lb.fontSize = fontSize;
-  lb.lineHeight = fontSize + 6;
+  lb.lineHeight = fontSize + 9;
   lb.color = colorFromHex(color);
   lb.overflow = Label.Overflow.NONE;
   lb.horizontalAlign = Label.HorizontalAlign.CENTER;
@@ -57,14 +57,14 @@ export function makeButton(parent: Node, name: string, w: number, h: number, lab
   const n = makeNode(name, parent, w, h);
   const g = n.addComponent(Graphics);
   g.fillColor = colorFromHex('#f2c97e');
-  g.roundRect(-w / 2, -h / 2, w, h, 18);
+  g.roundRect(-w / 2, -h / 2, w, h, 26);
   g.fill();
   g.strokeColor = colorFromHex('#c98a4b');
-  g.lineWidth = 3;
-  g.roundRect(-w / 2, -h / 2, w, h, 18);
+  g.lineWidth = 4;
+  g.roundRect(-w / 2, -h / 2, w, h, 26);
   g.stroke();
-  const t = makeNode('txt', n, w - 20, h - 10);
-  addLabel(t, label, Math.min(28, Math.floor(h * 0.38)), '#5b341a');
+  const t = makeNode('txt', n, w - 29, h - 14);
+  addLabel(t, label, Math.min(40, Math.floor(h * 0.38)), '#5b341a');
   n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
     e.propagationStopped = true;
     onClick();
@@ -78,11 +78,11 @@ export function makeImageButton(parent: Node, name: string, w: number, h: number
   else {
     const g = n.addComponent(Graphics);
     g.fillColor = colorFromHex('#8bc34a');
-    g.roundRect(-w / 2, -h / 2, w, h, 20);
+    g.roundRect(-w / 2, -h / 2, w, h, 29);
     g.fill();
   }
   const t = makeNode('txt', n, w * 0.8, h * 0.5);
-  addLabel(t, label, 30, '#5b341a');
+  addLabel(t, label, 43, '#5b341a');
   n.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
     e.propagationStopped = true;
     onClick();

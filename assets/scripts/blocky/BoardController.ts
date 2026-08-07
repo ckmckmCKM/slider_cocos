@@ -2,7 +2,7 @@ import {
   Color, EventTouch, Graphics, Label, Mask, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform,
   Vec3, tween,
 } from 'cc';
-import { BOARD_MAX_H, BOARD_MAX_W, CELL } from '../utils/Constants';
+import { CELL, CELL_GAP, CELL_SIZE } from '../utils/Constants';
 import { colorFromHex, shadeHex } from '../utils/Helpers';
 import { ResCache } from '../utils/ResCache';
 import { SoundMgr } from '../utils/SoundMgr';
@@ -263,22 +263,23 @@ export class BoardController {
     this.playMax = { x: maxX, y: maxY };
     const bw = maxX - minX + 1;
     const bh = maxY - minY + 1;
-    this.cell = Math.max(36, Math.floor(Math.min(
-      BOARD_MAX_W / (bw + 1.2),
-      BOARD_MAX_H / (bh + 1.2),
-      110,
-    )));
+    // 固定格子尺寸 + 间隙，棋盘总大小随关卡格子数计算，不缩放
+    this.cell = CELL;
     const C = this.cell;
     const cxm = (minX + maxX) / 2;
     const cym = (minY + maxY) / 2;
     this.playCenter = { x: cxm, y: cym };
     this.origin.set(-cxm * C, 0, 0);
 
-    const frameW = (bw + 0.88) * C;
-    const frameH = (bh + 0.88) * C;
-    const innerW = (bw + 0.14) * C;
-    const innerH = (bh + 0.14) * C;
+    const playW = bw * CELL_SIZE + (bw - 1) * CELL_GAP;
+    const playH = bh * CELL_SIZE + (bh - 1) * CELL_GAP;
+    const rim = CELL_SIZE * 0.44;
+    const frameW = playW + rim * 2;
+    const frameH = playH + rim * 2;
+    const innerW = playW + CELL_GAP;
+    const innerH = playH + CELL_GAP;
     const tray = makeNode('tray', this.root, frameW, frameH);
+    tray.active = false;
     const tg = tray.addComponent(Graphics);
 
     tg.fillColor = new Color(30, 12, 8, 155);
@@ -323,22 +324,23 @@ export class BoardController {
       const k = `${c.x},${c.y}`;
       if (seen.has(k)) continue;
       seen.add(k);
-      const cell = makeNode('cell', this.root, C * 0.96, C * 0.96);
+      const cell = makeNode('cell', this.root, CELL_SIZE, CELL_SIZE);
       cell.setPosition(this.gridToLocal(c.x, c.y));
       if (cellFace && cellBack) {
         setSprite(cell, cellBack);
-        setSprite(makeNode('face', cell, C * 0.94, C * 0.94), cellFace);
+        setSprite(makeNode('face', cell, CELL_SIZE, CELL_SIZE), cellFace);
       } else {
         const g = cell.addComponent(Graphics);
+        const half = CELL_SIZE / 2;
         g.fillColor = new Color(28, 10, 7, 150);
-        g.roundRect(-C * 0.47, -C * 0.47 - C * 0.025, C * 0.94, C * 0.94, C * 0.075);
+        g.roundRect(-half, -half - CELL_GAP * 0.5, CELL_SIZE, CELL_SIZE, CELL_SIZE * 0.08);
         g.fill();
         g.fillColor = colorFromHex('#582d1e');
-        g.roundRect(-C * 0.47, -C * 0.47, C * 0.94, C * 0.94, C * 0.075);
+        g.roundRect(-half, -half, CELL_SIZE, CELL_SIZE, CELL_SIZE * 0.08);
         g.fill();
         g.strokeColor = new Color(126, 70, 45, 150);
-        g.lineWidth = Math.max(1.5, C * 0.018);
-        g.roundRect(-C * 0.47, -C * 0.47, C * 0.94, C * 0.94, C * 0.075);
+        g.lineWidth = Math.max(1.5, CELL_SIZE * 0.018);
+        g.roundRect(-half, -half, CELL_SIZE, CELL_SIZE, CELL_SIZE * 0.08);
         g.stroke();
       }
       this.decor.push(cell);

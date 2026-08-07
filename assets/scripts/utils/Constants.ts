@@ -47,13 +47,17 @@ export const AUDIO_MAP: Record<string, string> = {
   bgm: 'audio/Bgm',
 };
 
-/** 默认格宽（实际由 BoardController 按关卡自适应） */
-export const CELL = 110;
-export const DESIGN_W = 750;
-export const DESIGN_H = 1334;
-/** 对局区留给棋盘的大致宽高 */
-export const BOARD_MAX_W = 680;
-export const BOARD_MAX_H = 780;
+/** 格子视觉尺寸（宽/高） */
+export const CELL_SIZE = 150;
+/** 格子间隙 */
+export const CELL_GAP = 5;
+/** 格子中心距 = 尺寸 + 间隙（布局/坐标用） */
+export const CELL = CELL_SIZE + CELL_GAP;
+export const DESIGN_W = 1080;
+export const DESIGN_H = 1920;
+/** @deprecated 棋盘已按 CELL_SIZE/CELL_GAP 固定计算，不再缩放 */
+export const BOARD_MAX_W = 980;
+export const BOARD_MAX_H = 1120;
 export const EPS = 0.02;
 export const PROGRESS_KEY = 'block_reveal_max';
 export const MAX_LEVEL = 650;
