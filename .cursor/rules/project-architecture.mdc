@@ -12,7 +12,7 @@ alwaysApply: true
 - 入口 UI：`assets/scripts/game/GameApp.ts`
 - 棋盘（当前）：`assets/scripts/blocky/BoardController.ts`
 - 关卡解析：`assets/scripts/blocky/LevelParser.ts`
-- 关卡文件：`assets/resources/levels_br/Lv_XXXX.txt`（650 关）
+- 关卡文件：`assets/bundle/game/levels_br/Lv_XXXX.txt`（650 关，**game bundle**）
 - 校验：`node tools/validate-levels.mjs 1 100`
 
 ## 必读陷阱
@@ -23,6 +23,7 @@ alwaysApply: true
 4. Ground 托盘 = Ground 掩码 + 方块 `listPos`；**不要**实心包围盒整盘填充。
 5. 胜利 = 所有 `PictureData` 拼合揭示，不是同色消除。
 6. `clear()` 中 `wallIce` 已在 `decor` 里，勿重复 destroy。
+7. 玩法资源在 **game Asset Bundle**（`assets/bundle/game`）；**TypeScript 逻辑必须留在 `assets/scripts/blocky`**，勿放进 bundle 目录（预览时无法被主工程 import）
 
 ## 代码风格
 

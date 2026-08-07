@@ -6,6 +6,9 @@ import {
   RollerDoorData, ShapePictureData, TunnelData, Vec2I, WallIceData, WoodenBoxData,
 } from './LevelTypes';
 
+/** 碎图底图默认资源（game/icon_bg/di_2_2） */
+export const DEFAULT_ICON_BG = 'di_2_2';
+
 /** 解析 Unity 恢复的 Lv_XXXX.txt（12 段 ^ 分隔） */
 export class LevelParser {
   static parse(text: string): LevelConfig {
@@ -86,9 +89,27 @@ function parsePictures(section: string): PictureData[] {
       isPencil: toInt(p[5]) !== 0,
       isFlipX: toInt(p[6]) !== 0,
       isFlipY: toInt(p[7]) !== 0,
+      nameIconBg: parseIconBgField(p.length >= 9 ? p[8] : ''),
     });
   }
   return list;
+}
+
+/** pictures 段 p[8]：`iconBg=di_2_2`（推荐）或裸文件名；空则默认 */
+export function parseIconBgField(raw: string): string {
+  const s = (raw || '').trim();
+  if (!s) return DEFAULT_ICON_BG;
+  if (s.startsWith('iconBg=')) {
+    const v = s.slice('iconBg='.length).trim();
+    return v || DEFAULT_ICON_BG;
+  }
+  return s;
+}
+
+/** 写出可读背景字段 */
+export function formatIconBgField(fileName: string): string {
+  const v = (fileName || '').trim() || DEFAULT_ICON_BG;
+  return `iconBg=${v}`;
 }
 
 function parseShapes(section: string): ShapePictureData[] {
@@ -288,11 +309,15 @@ function parseIntList(s: string): number[] {
   return s.split('|').filter((t) => t.length > 0).map(toInt);
 }
 
-/** Unity 路径 → Cocos resources 相对路径（无扩展名） */
+/** Unity 路径 → Cocos game bundle icon 相对路径（无扩展名） */
 export function pictureResourcePath(nameFilePicture: string): string {
-  // AssetPicture\Dong vat\3x3\meo → pictures/Dong vat/3x3/meo
-  let p = nameFilePicture.replace(/\\/g, '/');
-  if (p.startsWith('AssetPicture/')) p = p.slice('AssetPicture/'.length);
-  if (p.startsWith('AssetPicture')) p = p.slice('AssetPicture'.length).replace(/^\//, '');
-  return `pictures/${p}`;
+  // AssetPicture\Dong vat\3x3\meo → icon/meo
+  const p = nameFilePicture.replace(/\\/g, '/');
+  const base = p.split('/').pop() || p;
+  return `icon/${base}`;
+}
+
+/** game/icon_bg 碎片底图路径（无扩展名） */
+export function iconBgResourcePath(fileName: string): string {
+  return `icon_bg/${fileName}`;
 }

@@ -8,8 +8,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ROOT = path.join(__dirname, '..');
-const LEVEL_DIR = path.join(ROOT, 'assets/resources/levels_br');
-const PIC_DIR = path.join(ROOT, 'assets/resources/pictures');
+const LEVEL_DIR = path.join(ROOT, 'assets/bundle/game/levels_br');
+const PIC_DIR = path.join(ROOT, 'assets/bundle/game/pictures');
 
 const TypeEnvironment = { Block: 0, Ground: 1 };
 

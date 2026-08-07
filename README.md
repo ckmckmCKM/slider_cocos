@@ -5,7 +5,7 @@
 ## 打开方式
 
 1. 启动 **Cocos Creator 3.8.8**
-2. 打开本项目，等待 `assets/resources/pictures`、`ui_br`、`levels_br` 导入完成（首次较慢）
+2. 打开本项目，等待 `assets/bundle/game`（关卡 / 揭图 / 局内 UI）导入完成（首次较慢）
 3. 打开 `assets/scenes/Main.scene`，Canvas 挂载 `GameApp`
 4. 预览运行
 
@@ -15,11 +15,11 @@
 
 | 内容 | 路径 |
 |------|------|
-| 650 关明文 | `assets/resources/levels_br/Lv_XXXX.txt` |
-| 揭图资源 ~581 | `assets/resources/pictures/**` |
-| UI / 道具 / 机关图标 ~401 | `assets/resources/ui_br/**` |
-| 关卡解析器 | `assets/scripts/blocky/LevelParser.ts` |
-| 核心棋盘（逐图揭示） | `assets/scripts/blocky/BoardController.ts` |
+| 650 关明文 | `assets/bundle/game/levels_br/Lv_XXXX.txt` |
+| 揭图资源 ~581 | `assets/bundle/game/pictures/**` |
+| UI / 机关图标 | `assets/bundle/game/ui_br/**` |
+| 关卡解析器 | `assets/bundle/game/scripts/blocky/LevelParser.ts` |
+| 核心棋盘（逐图揭示） | `assets/bundle/game/scripts/blocky/BoardController.ts` |
 
 ## 已实现玩法
 
@@ -35,7 +35,7 @@
   - **旋转器**（点击中心，臂上块顺时针 90°）
   - **颜色路径**（同色块沿滑动方向强制滑行）
   - 冰墙计数
-- 道具：Freeze / Magnet / Slicer / Teleport
+- 道具：Freeze / Magnet / Slicer / Teleport（局内 UI 暂隐藏）
 - 失败续关（+60 秒 / 拆弹）
 
 ## 验收建议关卡

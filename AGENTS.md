@@ -16,8 +16,8 @@
 | 棋盘逻辑 | `assets/scripts/blocky/BoardController.ts` |
 | 关卡解析 | `assets/scripts/blocky/LevelParser.ts` |
 | 机关视觉 | `assets/scripts/blocky/EnvHelpers.ts` |
-| 资源加载 | `assets/scripts/utils/ResCache.ts` |
-| 650 关数据 | `assets/resources/levels_br/Lv_XXXX.txt` |
+| 资源加载 | `assets/scripts/utils/ResCache.ts`（`loadGameBundle`） |
+| 650 关数据 | `assets/bundle/game/levels_br/Lv_XXXX.txt` |
 | 关卡校验 | `node tools/validate-levels.mjs 1 100` |
 
 ## 禁止误改

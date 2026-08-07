@@ -28,35 +28,38 @@ slider_cocos/
 ├── assets/
 │   ├── scenes/
 │   │   └── Main.scene              # 唯一主场景，Canvas → GameApp
-│   ├── resources/                  # 运行时 resources.load 资源
-│   │   ├── levels_br/Lv_XXXX.txt   # 650 关明文（Unity 导出格式）
-│   │   ├── pictures/**             # 揭图贴图（~581）
-│   │   ├── ui_br/**                # UI / 道具 / 机关图标（~401）
-│   │   ├── ui/**                   # 通用 UI（背景 gk_bj 等）
-│   │   ├── audio/**                # 音效 / BGM
+│   ├── bundle/
+│   │   └── game/                   # ★ Asset Bundle「game」：核心玩法资源 + 逻辑脚本
+│   │       ├── levels_br/Lv_XXXX.txt
+│   │       ├── pictures/**
+│   │       ├── ui_br/**
+│   │       ├── prefab/SliderGame.prefab  # Game 界面预制体
+│   │       └── audio/**            # 仅资源；逻辑脚本在 scripts/blocky
+│   ├── resources/                  # 大厅 / 选关等资源（resources bundle）
+│   │   ├── ui/**                   # Lobby / Menu UI
+│   │   ├── img/**
 │   │   └── levels/all.json         # 旧版关卡（已废弃，ResCache 兼容保留）
 │   └── scripts/
 │       ├── game/
-│       │   ├── GameApp.ts          # ★ 应用入口：Lobby / 选关 / HUD / 道具 UI
-│       │   └── BoardController.ts  # ⚠ 旧版「超级滑块」棋盘，已废弃，勿改
-│       ├── blocky/                 # ★ Block Reveal 核心逻辑
-│       │   ├── BoardController.ts  # ★ 棋盘：拖拽、揭示、机关、道具
-│       │   ├── LevelParser.ts      # ★ 关卡文本 → LevelConfig
-│       │   ├── LevelTypes.ts       # 关卡数据结构
-│       │   ├── Enums.ts            # Unity 枚举镜像（颜色/机制/Ground）
-│       │   └── EnvHelpers.ts       # 环境机关视觉 + 运行时结构
+│       │   ├── GameApp.ts          # ★ 应用入口：Lobby / 选关 / HUD
+│       │   ├── LevelEditor.ts      # 关卡编辑器
+│       │   └── BoardController.ts  # ⚠ 旧版「超级滑块」，已废弃，勿改
+│       ├── blocky/                 # ★ 核心玩法逻辑（不可放入 bundle 目录）
+│       │   ├── BoardController.ts
+│       │   ├── LevelParser.ts
+│       │   ├── LevelSerializer.ts
+│       │   └── ...
 │       └── utils/
-│           ├── Constants.ts        # 设计尺寸、MAX_LEVEL、音频映射
-│           ├── ResCache.ts         # 关卡/图片按需加载与缓存
-│           ├── UIFactory.ts        # 纯代码 UI 工厂（makeNode / Button / Label）
-│           ├── SoundMgr.ts         # 音效播放
-│           ├── Helpers.ts          # 颜色、clamp 等工具
-│           └── LevelTypes.ts       # 旧版 JSON 关卡类型（废弃）
+│           ├── Constants.ts
+│           ├── ResCache.ts         # loadGameBundle + 按 bundle 分流加载
+│           ├── UIFactory.ts
+│           ├── SoundMgr.ts
+│           └── Helpers.ts
 ├── tools/
-│   └── validate-levels.mjs         # 关卡批量校验脚本（Node，不依赖引擎）
+│   └── validate-levels.mjs
 ├── docs/
-│   └── ARCHITECTURE.md             # 本文档
-└── README.md                       # 简要说明与验收关卡列表
+│   └── ARCHITECTURE.md
+└── README.md
 ```
 
 ---
@@ -68,7 +71,6 @@ flowchart TB
   subgraph UI["GameApp（UI 层）"]
     Lobby --> Menu --> Game
     Game --> HUD
-    Game --> Tools
     Game --> Overlays
   end
 
@@ -78,9 +80,9 @@ flowchart TB
     EH[EnvHelpers]
   end
 
-  subgraph Data["数据 / 资源"]
+  subgraph Data["game bundle"]
     TXT["levels_br/Lv_XXXX.txt"]
-    RC[ResCache.loadBrLevel]
+    RC[ResCache.loadGameBundle]
     PIC["pictures/**"]
   end
 
@@ -95,7 +97,7 @@ flowchart TB
 
 ### 3.1 启动流程
 
-1. `GameApp.onLoad` → 设置分辨率、初始化 `SoundMgr`、纯代码构建 UI
+1. `GameApp.onLoad` → 设置分辨率、`SoundMgr.init`（内部 `ResCache.loadGameBundle`）、构建 Lobby/Menu，实例化 `prefab/SliderGame`
 2. 默认显示 **Lobby** → 进入 **Menu** 选关
 3. `enterGame(idx)` → `ResCache.loadBrLevel(idx)` → `BoardController.startLevel(idx, lvl)`
 4. `GameApp.update` 每帧调用 `board.tick(dt)`
@@ -121,7 +123,7 @@ startLevel
 | `onGoals` | 目标图状态变化 |
 | `onWin` | 所有图片揭示完成 |
 | `onLose('time'\|'bomb')` | 超时 / 炸弹 |
-| `onToast(msg)` | 道具提示等 |
+| `onToast(msg)` | 提示信息 |
 | `onPictureComplete?(picId)` | 单张图揭示（可选） |
 
 ---
@@ -130,9 +132,8 @@ startLevel
 
 ### 4.1 `GameApp.ts` — 应用壳
 
-- **职责：** 三屏 UI（Lobby / Menu / Game）、HUD、道具栏、胜负/续关弹层、进度存档
+- **职责：** 三屏 UI（Lobby / Menu / Game）、HUD、胜负/续关弹层、进度存档
 - **存档：** `localStorage` key = `block_reveal_max`（`Constants.PROGRESS_KEY`）
-- **道具初始数量：** freeze=2, magnet=2, slicer=3, teleport=1（每关重置）
 - **续关：** +60 秒 / 炸弹拆弹（`keepPlaying` / `keepPlayingBomb`）
 - **不碰棋盘逻辑**，只持有 `BoardController` 实例
 
@@ -143,7 +144,7 @@ startLevel
 - **`pictureResourcePath()`**：`AssetPicture\Foo\bar` → `pictures/Foo/bar`
 - **shape 去重：** 完全相同条目跳过；重复 id 自动分配新 id（修复 Lv70/Lv89 源数据问题）
 
-### 4.3 `BoardController.ts` — 棋盘核心（~1900 行）
+### 4.3 `BoardController.ts` — 棋盘核心（~1900 行，位于 `assets/bundle/game/scripts/blocky/`）
 
 按功能分区（搜索 `// ───` 分隔注释）：
 
@@ -154,7 +155,7 @@ startLevel
 | move | `tryMoveGroup` / `isWalkable` / `isBlockedByEnv` |
 | picture complete | `isPictureAssembled` / `completePicture` / `flyOut` |
 | env / layered / colorblock | 双层、ColorBlock 绳、木箱/卷帘/粉碎/隧道 |
-| tools | Freeze / Magnet / Slicer / Teleport |
+| tools | Freeze / Magnet / Slicer / Teleport（逻辑保留，局内 UI 隐藏） |
 | portals / bombs | 传送门、炸弹 tick |
 
 **胜利条件：** 所有 `PictureData` 被 `completedPics` 标记，而非旧版的「同色消除」。
@@ -200,9 +201,11 @@ piece_*
 ### 4.5 `ResCache.ts` — 资源加载
 
 ```typescript
-ResCache.loadBrLevel(idx)   // 解析并缓存 LevelConfig
-ResCache.loadSprite(path)   // pictures / ui / ui_br
-ResCache.maxBrLevel()       // 650
+ResCache.loadGameBundle()   // 加载 game Asset Bundle（首次）
+ResCache.loadBrLevel(idx)   // game bundle 内关卡文本 → LevelParser
+ResCache.loadSprite(path)   // pictures/ui_br → game；ui/img → resources
+ResCache.uiBr(name)         // game bundle / ui_br
+ResCache.ui(name)           // resources / ui
 ```
 
 - 关卡缓存 `_brLevels: Map<number, LevelConfig>`
@@ -223,8 +226,8 @@ ResCache.maxBrLevel()       // 650
 
 ### 5.1 文件命名
 
-`assets/resources/levels_br/Lv_{idx:04d}.txt`  
-加载路径（无扩展名）：`levels_br/Lv_0002`
+`assets/bundle/game/levels_br/Lv_{idx:04d}.txt`  
+加载：`ResCache.loadBrLevel(idx)`（game bundle 内路径 `levels_br/Lv_0002`）
 
 ### 5.2 十二段结构（`^` 分隔）
 
@@ -235,7 +238,7 @@ header ^ pictures ^ shapes ^ portal ^ wooden ^ grinder ^ tunnel ^ colorPath ^ me
 | 段 | 字段 | 说明 |
 |----|------|------|
 | 0 header | `id#timeLimit#difficulty#boardData` | 见下节 board |
-| 1 pictures | `id:w:h:path:color:...` | 目标揭图 |
+| 1 pictures | `id:w:h:path:color:pencil:flipX:flipY:iconBg=di_2_2` | 目标揭图；末字段可读背景名，缺省 `di_2_2`（`game/icon_bg`） |
 | 2 shapes | 19+ 字段 | Polyomino 方块（见 LevelParser） |
 | 3 portal | 传送门 | |
 | 4 wooden | 木箱 | |
@@ -346,25 +349,17 @@ Local: gridToLocal(x,y) → ((x-cxm)*C, (y-cym)*C)
 | ColorPath | 同色块沿滑动方向强制滑行 |
 | WallIce | 完成图 tick -1，归零移除阻挡 |
 
-### 7.5 道具
-
-| 道具 | 方法 |
-|------|------|
-| Freeze | `useFreeze()` — 15s 计时暂停 |
-| Magnet | `useToolOn('magnet')` — 吸合相关块 |
-| Slicer | `useToolOn('slicer')` — 切分块 |
-| Teleport | 选两块交换位置 |
-
 ---
 
 ## 8. 资源路径约定
 
-| 类型 | Unity 源路径 | Cocos resources 路径 |
-|------|--------------|----------------------|
-| 关卡 | — | `levels_br/Lv_XXXX` |
-| 揭图 | `AssetPicture\...\name` | `pictures/.../name` |
-| UI | — | `ui_br/...` 或 `ui/...` |
-| 音效 | — | `audio/...`（见 `Constants.AUDIO_MAP`） |
+| 类型 | Unity 源路径 | Cocos 路径 | Bundle |
+|------|--------------|------------|--------|
+| 关卡 | — | `levels_br/Lv_XXXX` | game |
+| 揭图 | `AssetPicture\...\name` | `pictures/.../name` | game |
+| 局内 UI | — | `ui_br/...` | game |
+| 音效 | — | `audio/...` | game |
+| 大厅 UI | — | `ui/...` | resources |
 
 `ResCache.loadSprite` 会依次尝试 `{path}/spriteFrame`、`{path}`、`ImageAsset`。
 
@@ -385,7 +380,16 @@ node tools/validate-levels.mjs 1 100
 - 打开 `Main.scene` → 预览
 - MCP `user-cocos-creator` 可查询场景/日志（预览服需手动启动）
 
-### 9.3 推荐验收关卡
+### 9.4 关卡编辑器
+
+大厅 → **关卡编辑**：
+
+- 铺地面 / 挡板、放置拼块（多种形状）、删除拼块
+- **4×4 示例** 初始化可玩区；**+ 揭图** 添加目标图
+- **导出**：裁剪到 Ground 包围盒并生成 `Lv_XXXX.txt` 格式文本（可复制）
+- **试玩**：在正式对局界面预览当前配置
+
+相关代码：`assets/scripts/game/LevelEditor.ts`、`LevelSerializer.ts`、`LevelEditorTemplates.ts`
 
 见 `README.md`：1 → 10 → 75(双层) → 112(绳索) → 172(传送门) → … → 601(旋转器)
 
@@ -461,7 +465,7 @@ ResCache
 | — | LevelParser shape 去重 / 冲突 id 重分配 |
 | — | clear/flyOut 双重 destroy 修复 |
 | 2026-08-05 | 拼块图片改为单 Sprite + `GRAPHICS_STENCIL` 精确圆角/内凹裁剪；补齐厚边与选中白描边 |
-| 2026-08-05 | 拖动改为基于当前位置逐步碰撞；增加 `0.2` 格提前吸附，并保证先对齐再播放合并效果 |
+| 2026-08-06 | 核心玩法迁入 **game Asset Bundle**（`assets/bundle/game`）：关卡/揭图/ui_br/audio + blocky 脚本；ResCache/SoundMgr 改为 bundle 加载 |
 
 ---
 

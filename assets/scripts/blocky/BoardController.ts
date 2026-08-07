@@ -13,7 +13,7 @@ import {
   colorFlagBits, grinderCells, rotateCellCW, rotatorArmCells,
   spawnColorPathVisual, spawnGrinderVisual, spawnRoller, spawnRotator, spawnTunnelVisual, spawnWoodenBox,
 } from './EnvHelpers';
-import { pictureResourcePath } from './LevelParser';
+import { DEFAULT_ICON_BG, pictureResourcePath, iconBgResourcePath } from './LevelParser';
 import { LevelConfig, PictureData, PortalData, ShapePictureData, Vec2I } from './LevelTypes';
 
 export interface Piece {
@@ -507,9 +507,11 @@ export class BoardController {
     outline.stroke();
 
     if (matchable && pic) {
-      const [sf, glassSf] = await Promise.all([
+      const iconBgName = pic.nameIconBg || DEFAULT_ICON_BG;
+      const [sf, glassSf, bgSf] = await Promise.all([
         ResCache.loadSprite(pictureResourcePath(pic.nameFilePicture)),
         ResCache.uiBr('RoundBoxGlass'),
+        ResCache.loadSprite(iconBgResourcePath(iconBgName)),
       ]);
       if (sf) {
         const pictureNode = makeNode('picture', node, pw, ph);
@@ -520,6 +522,9 @@ export class BoardController {
         pictureStencil.fillColor.fromHEX('#ff0000');
         this.appendRoundedLoops(pictureStencil, loops, cornerRadius);
         pictureStencil.fill();
+        if (bgSf) {
+          this.placePieceIconBg(pictureNode, bgSf, pw, ph);
+        }
         if (glassSf) {
           this.placePieceGlassFrame(pictureNode, glassSf, pw, ph);
         }
@@ -699,6 +704,19 @@ export class BoardController {
     }
   }
 
+  /** 九宫格碎图底：置于 picture 内最底层，随拼块包围盒拉伸 */
+  private placePieceIconBg(parent: Node, sf: SpriteFrame, pw: number, ph: number) {
+    // 保护圆角与角落网点；纹理约 315²
+    sf.insetTop = 56;
+    sf.insetBottom = 56;
+    sf.insetLeft = 56;
+    sf.insetRight = 56;
+    const bg = makeNode('pieceBg', parent, pw, ph);
+    const sp = setSprite(bg, sf);
+    sp.type = Sprite.Type.SLICED;
+    sp.trim = false;
+  }
+
   /** 九宫格玻璃顶光框：置于 picture 内、image 之下，随拼块包围盒拉伸 */
   private placePieceGlassFrame(parent: Node, sf: SpriteFrame, pw: number, ph: number) {
     sf.insetTop = 36;
@@ -742,8 +760,11 @@ export class BoardController {
     image.setPosition(imageX, imageY, 0);
     const sprite = setSprite(image, sf);
     sprite.trim = false;
+    // 层级：pieceBg → glassFrame → image
+    const bg = parent.getChildByName('pieceBg');
     const glass = parent.getChildByName('glassFrame');
-    if (glass) glass.setSiblingIndex(0);
+    if (bg) bg.setSiblingIndex(0);
+    if (glass) glass.setSiblingIndex(bg ? 1 : 0);
   }
 
   private placePiecePicture(

@@ -1,6 +1,6 @@
 import {
-  _decorator, Component, Node, Label, Graphics, Color, sys, UITransform,
-  view, ResolutionPolicy, tween, Vec3, UIOpacity,
+  _decorator, Component, Node, Label, Graphics, Color, sys, UITransform, EventTouch,
+  view, ResolutionPolicy, tween, Vec3, UIOpacity, instantiate,
 } from 'cc';
 import { BoardController } from '../blocky/BoardController';
 import { DESIGN_H, DESIGN_W, MAX_LEVEL, PROGRESS_KEY } from '../utils/Constants';
@@ -8,10 +8,33 @@ import { colorFromHex } from '../utils/Helpers';
 import { ResCache } from '../utils/ResCache';
 import { SoundMgr } from '../utils/SoundMgr';
 import {
-  addLabel, fullWidget, makeButton, makeImageButton, makeNode, makeOverlay, setSprite,
+  addLabel, fullWidget, makeButton, makeImageButton, makeNode, setSprite,
 } from '../utils/UIFactory';
 
 const { ccclass } = _decorator;
+
+function childPath(root: Node, path: string): Node | null {
+  const parts = path.split('/');
+  let n: Node | null = root;
+  for (const p of parts) {
+    if (!n) return null;
+    n = n.getChildByName(p);
+  }
+  return n;
+}
+
+function mustChild(root: Node, path: string): Node {
+  const n = childPath(root, path);
+  if (!n) throw new Error(`SliderGame missing node: ${path}`);
+  return n;
+}
+
+function mustLabel(root: Node, path: string): Label {
+  const n = mustChild(root, path);
+  const lb = n.getComponent(Label);
+  if (!lb) throw new Error(`SliderGame missing Label: ${path}`);
+  return lb;
+}
 
 @ccclass('GameApp')
 export class GameApp extends Component {
@@ -81,10 +104,14 @@ export class GameApp extends Component {
     this.menu.active = false;
     await this.buildMenu(this.menu);
 
-    this.game = makeNode('Game', canvas, DESIGN_W, DESIGN_H);
+    const gamePrefab = await ResCache.loadPrefab('prefab/SliderGame');
+    if (!gamePrefab) throw new Error('prefab/SliderGame missing');
+    this.game = instantiate(gamePrefab);
+    this.game.name = 'Game';
+    canvas.addChild(this.game);
     fullWidget(this.game);
     this.game.active = false;
-    await this.buildGame(this.game);
+    await this.bindGame(this.game);
   }
 
   private async buildLobby(root: Node) {
@@ -108,8 +135,8 @@ export class GameApp extends Component {
     if (logoSf) setSprite(logo, logoSf);
     else addLabel(logo, 'Block Reveal', 48, '#5b341a');
 
-    const btnBox = makeNode('btns', content, DESIGN_W, 220);
-    btnBox.setPosition(0, -180, 0);
+    const btnBox = makeNode('btns', content, DESIGN_W, 200);
+    btnBox.setPosition(0, -140, 0);
 
     const anLv = await ResCache.ui('an_lv');
     const anLan = await ResCache.ui('an_lan');
@@ -200,14 +227,12 @@ export class GameApp extends Component {
     }
   }
 
-  private async buildGame(root: Node) {
-    const bg = makeNode('bg', root, DESIGN_W, DESIGN_H);
-    fullWidget(bg);
+  private async bindGame(root: Node) {
+    const bg = mustChild(root, 'bg');
     const bgSf = await ResCache.ui('gk_bj');
     if (bgSf) setSprite(bg, bgSf);
 
-    this.boardRoot = makeNode('Board', root, DESIGN_W, DESIGN_H * 0.72);
-    this.boardRoot.setPosition(0, 20, 0);
+    this.boardRoot = mustChild(root, 'Board');
     this.board = new BoardController(this.boardRoot, {
       onHud: () => this.refreshHud(),
       onGoals: () => this.refreshGoals(),
@@ -216,165 +241,108 @@ export class GameApp extends Component {
       onToast: (m) => this.showToast(m),
     });
 
-    const hud = makeNode('HUD', root, DESIGN_W - 20, 160);
-    hud.setPosition(0, DESIGN_H / 2 - 100, 0);
+    this.hudLevel = mustLabel(root, 'HUD/level');
+    this.hudTimer = mustLabel(root, 'HUD/timer/t');
+    this.hudProgress = mustLabel(root, 'HUD/prog/txt');
+    this.goalBar = mustChild(root, 'HUD/goals');
 
-    const lvNode = makeNode('level', hud, 180, 44);
-    lvNode.setPosition(-250, 40, 0);
-    this.hudLevel = addLabel(lvNode, '第1关', 32);
+    this.paintRoundRect(mustChild(root, 'HUD/timer'), -85, -24, 170, 48, 22, new Color(70, 40, 18, 230));
+    this.paintRoundRect(mustChild(root, 'HUD/prog'), -70, -22, 140, 44, 12, new Color(255, 240, 210, 230));
+    this.paintRoundRect(this.goalBar, -(DESIGN_W - 60) / 2, -32, DESIGN_W - 60, 64, 12, new Color(120, 70, 30, 55));
 
-    const timerWrap = makeNode('timer', hud, 170, 48);
-    timerWrap.setPosition(0, 40, 0);
-    const tg = timerWrap.addComponent(Graphics);
-    tg.fillColor = new Color(70, 40, 18, 230);
-    tg.roundRect(-85, -24, 170, 48, 22);
-    tg.fill();
-    const timerLbl = makeNode('t', timerWrap, 140, 40);
-    this.hudTimer = addLabel(timerLbl, '03:00', 28, '#fff8e7');
+    const tools = mustChild(root, 'tools');
+    await this.bindTools(tools);
+    tools.active = false;
 
-    const prog = makeNode('prog', hud, 140, 44);
-    prog.setPosition(250, 40, 0);
-    const pg = prog.addComponent(Graphics);
-    pg.fillColor = new Color(255, 240, 210, 230);
-    pg.roundRect(-70, -22, 140, 44, 12);
-    pg.fill();
-    this.hudProgress = addLabel(makeNode('txt', prog, 130, 36), '图 0', 22, '#6b3f1a');
+    const tipN = mustChild(root, 'tip');
+    this.tip = mustLabel(root, 'tip/txt');
+    this.paintRoundRect(tipN, -310, -20, 620, 40, 14, new Color(90, 52, 26, 170));
+    tipN.active = false;
 
-    this.goalBar = makeNode('goals', hud, DESIGN_W - 60, 64);
-    this.goalBar.setPosition(0, -36, 0);
-    const goalBg = this.goalBar.addComponent(Graphics);
-    goalBg.fillColor = new Color(120, 70, 30, 55);
-    goalBg.roundRect(-(DESIGN_W - 60) / 2, -32, DESIGN_W - 60, 64, 12);
-    goalBg.fill();
-
-    const tools = makeNode('tools', root, DESIGN_W, 110);
-    tools.setPosition(0, -DESIGN_H / 2 + 100, 0);
-    await this.buildTools(tools);
-
-    const tipN = makeNode('tip', root, 620, 40);
-    tipN.setPosition(0, -DESIGN_H / 2 + 185, 0);
-    const tipg = tipN.addComponent(Graphics);
-    tipg.fillColor = new Color(90, 52, 26, 170);
-    tipg.roundRect(-310, -20, 620, 40, 14);
-    tipg.fill();
-    this.tip = addLabel(makeNode('txt', tipN, 600, 36), '拖动方块，拼完整张图片即可揭示', 20, '#ffe9c4');
-
-    this.toastNode = makeNode('toast', root, 360, 56);
+    this.toastNode = mustChild(root, 'toast');
+    this.toast = mustLabel(root, 'toast/txt');
+    this.paintRoundRect(this.toastNode, -180, -28, 360, 56, 14, new Color(90, 52, 26, 230));
     this.toastNode.active = false;
-    const tostg = this.toastNode.addComponent(Graphics);
-    tostg.fillColor = new Color(90, 52, 26, 230);
-    tostg.roundRect(-180, -28, 360, 56, 14);
-    tostg.fill();
-    this.toast = addLabel(makeNode('txt', this.toastNode, 340, 48), '', 24, '#ffe9c4');
 
-    this.winOverlay = makeOverlay(root, 'win');
-    this.winOverlay.getComponent(Graphics)!.fillColor = new Color(0, 0, 0, 170);
-    this.winConfettiRoot = makeNode('confetti', this.winOverlay, DESIGN_W, DESIGN_H);
-    fullWidget(this.winConfettiRoot);
-    this.winPanel = makeNode('panel', this.winOverlay, 520, 420);
+    this.winOverlay = mustChild(root, 'win');
+    this.winOverlay.active = false;
+    this.paintRect(this.winOverlay, -DESIGN_W / 2, -DESIGN_H / 2, DESIGN_W, DESIGN_H, new Color(0, 0, 0, 170));
+    this.winConfettiRoot = mustChild(root, 'win/confetti');
+    this.winPanel = mustChild(root, 'win/panel');
+    this.paintRoundRect(this.winPanel, -260, -210, 520, 420, 24, new Color(255, 255, 255, 18));
     {
-      const panelBg = this.winPanel.addComponent(Graphics);
-      panelBg.fillColor = new Color(255, 255, 255, 18);
-      panelBg.roundRect(-260, -210, 520, 420, 24);
-      panelBg.fill();
-
-      const h1 = makeNode('h1', this.winPanel, 460, 70);
-      h1.setPosition(0, 130, 0);
-      const h1Label = addLabel(h1, 'Well Done!', 52, '#4fc3f7');
+      const h1Label = mustLabel(root, 'win/panel/h1');
       h1Label.enableOutline = true;
       h1Label.outlineColor = colorFromHex('#ffd54f');
       h1Label.outlineWidth = 4;
-
-      const h2 = makeNode('h2', this.winPanel, 400, 40);
-      h2.setPosition(0, 50, 0);
-      this.winText = addLabel(h2, '', 26, '#ffffff');
-
-      const feat = makeNode('feat', this.winPanel, 320, 120);
-      feat.setPosition(0, -30, 0);
-      const fg = feat.addComponent(Graphics);
-      fg.fillColor = new Color(0, 0, 0, 140);
-      fg.roundRect(-160, -60, 320, 120, 16);
-      fg.fill();
+      this.winText = mustLabel(root, 'win/panel/h2');
+      const feat = mustChild(root, 'win/panel/feat');
+      this.paintRoundRect(feat, -160, -60, 320, 120, 16, new Color(0, 0, 0, 140));
+      const fg = feat.getComponent(Graphics)!;
       fg.strokeColor = new Color(255, 255, 255, 80);
       fg.lineWidth = 2;
       fg.roundRect(-160, -60, 320, 120, 16);
       fg.stroke();
-      const t1n = makeNode('t1', feat, 280, 30);
-      t1n.setPosition(0, 28, 0);
-      addLabel(t1n, '关卡完成', 24, '#ffffff');
-      const t2n = makeNode('t2', feat, 280, 28);
-      t2n.setPosition(0, -18, 0);
-      addLabel(t2n, '继续挑战下一关吧', 20, '#e0e0e0');
-
-      makeButton(this.winPanel, 'next', 280, 72, '下一关 ▶', () => {
+      this.bindClick(mustChild(root, 'win/panel/next'), () => {
         SoundMgr.play('click');
         this.winOverlay.active = false;
         this.enterGame(this.board.levelIndex + 1);
-      }).setPosition(0, -130, 0);
-      makeButton(this.winPanel, 'home', 200, 56, '返回主页', () => {
+      });
+      this.bindClick(mustChild(root, 'win/panel/home'), () => {
         SoundMgr.play('click');
         this.winOverlay.active = false;
         this.showLobby();
-      }).setPosition(0, -210, 0);
+      });
+      this.paintButton(mustChild(root, 'win/panel/next'), 280, 72);
+      this.paintButton(mustChild(root, 'win/panel/home'), 200, 56);
     }
 
-    this.loseOverlay = makeOverlay(root, 'lose');
+    this.loseOverlay = mustChild(root, 'lose');
     this.loseOverlay.active = false;
-    {
-      const h1 = makeNode('h1', this.loseOverlay, 400, 50);
-      h1.setPosition(0, 120, 0);
-      this.loseTitle = addLabel(h1, '失败', 42, '#ffe9c4');
-      makeButton(this.loseOverlay, 'keep', 240, 64, '续关 (+60秒)', () => {
-        SoundMgr.play('click');
-        this.loseOverlay.active = false;
-        if (this.board.loseReason === 'bomb') this.board.keepPlayingBomb();
-        else this.board.keepPlaying(60);
-      }).setPosition(0, 20, 0);
-      makeButton(this.loseOverlay, 'retry', 240, 64, '再来一次', () => {
-        SoundMgr.play('click');
-        this.enterGame(this.board.levelIndex);
-      }).setPosition(0, -60, 0);
-      makeButton(this.loseOverlay, 'menu', 200, 56, '选关', () => {
-        SoundMgr.play('click');
-        this.showMenu();
-      }).setPosition(0, -140, 0);
-    }
+    this.paintRect(this.loseOverlay, -DESIGN_W / 2, -DESIGN_H / 2, DESIGN_W, DESIGN_H, new Color(90, 52, 26, 220));
+    this.loseTitle = mustLabel(root, 'lose/h1');
+    this.bindClick(mustChild(root, 'lose/keep'), () => {
+      SoundMgr.play('click');
+      this.loseOverlay.active = false;
+      if (this.board.loseReason === 'bomb') this.board.keepPlayingBomb();
+      else this.board.keepPlaying(60);
+    });
+    this.bindClick(mustChild(root, 'lose/retry'), () => {
+      SoundMgr.play('click');
+      this.enterGame(this.board.levelIndex);
+    });
+    this.bindClick(mustChild(root, 'lose/menu'), () => {
+      SoundMgr.play('click');
+      this.showMenu();
+    });
+    this.paintButton(mustChild(root, 'lose/keep'), 240, 64);
+    this.paintButton(mustChild(root, 'lose/retry'), 240, 64);
+    this.paintButton(mustChild(root, 'lose/menu'), 200, 56);
 
-    this.keepOverlay = makeNode('keep', root, 1, 1);
+    this.keepOverlay = mustChild(root, 'keep');
     this.keepOverlay.active = false;
   }
 
-  private async buildTools(parent: Node) {
+  private async bindTools(parent: Node) {
     const defs: { key: string; ui: string; tip: string; instant?: boolean }[] = [
       { key: 'freeze', ui: 'Ice clock_booster', tip: '', instant: true },
       { key: 'magnet', ui: 'Magnet_booster', tip: '点击一张图，自动完成' },
       { key: 'slicer', ui: 'Saw_booster', tip: '点击要切开的方块' },
       { key: 'teleport', ui: 'The bush_booster', tip: '选择两块交换位置' },
     ];
-    const gap = 95;
-    const start = -((defs.length - 1) * gap) / 2;
-    for (let i = 0; i < defs.length; i++) {
-      const d = defs[i];
-      const n = makeNode(d.key, parent, 80, 80);
-      n.setPosition(start + i * gap, 0, 0);
-      const g = n.addComponent(Graphics);
-      g.fillColor = colorFromHex('#f2d19a');
-      g.roundRect(-40, -40, 80, 80, 18);
-      g.fill();
-      g.strokeColor = colorFromHex('#a86a32');
-      g.lineWidth = 4;
-      g.roundRect(-40, -40, 80, 80, 18);
-      g.stroke();
+    for (const d of defs) {
+      const n = mustChild(parent, d.key);
+      this.paintButton(n, 80, 80);
+      const icon = mustChild(n, 'icon');
       const sf = await ResCache.uiBr(d.ui);
-      if (sf) setSprite(makeNode('icon', n, 58, 58), sf);
-      else addLabel(makeNode('fb', n, 70, 30), d.key, 14, '#5b341a');
-      const badge = makeNode('cnt', n, 28, 28);
-      badge.setPosition(28, 28, 0);
-      const bg = badge.addComponent(Graphics);
+      if (sf) setSprite(icon, sf);
+      const badge = mustChild(n, 'cnt');
+      const bg = badge.getComponent(Graphics) || badge.addComponent(Graphics);
+      bg.clear();
       bg.fillColor = colorFromHex('#e05030');
       bg.circle(0, 0, 14);
       bg.fill();
-      const cnt = addLabel(makeNode('txt', badge, 28, 28), '0', 16, '#ffffff');
+      const cnt = mustLabel(n, 'cnt/txt');
       this.toolNodes[d.key] = { node: n, cnt };
       n.on(Node.EventType.TOUCH_END, () => {
         if (!this.board?.running) return;
@@ -394,6 +362,43 @@ export class GameApp extends Component {
     }
   }
 
+  private paintRect(node: Node, x: number, y: number, w: number, h: number, fill: Color) {
+    const g = node.getComponent(Graphics) || node.addComponent(Graphics);
+    g.clear();
+    g.fillColor = fill;
+    g.rect(x, y, w, h);
+    g.fill();
+  }
+
+  private paintRoundRect(
+    node: Node, x: number, y: number, w: number, h: number, r: number, fill: Color,
+  ) {
+    const g = node.getComponent(Graphics) || node.addComponent(Graphics);
+    g.clear();
+    g.fillColor = fill;
+    g.roundRect(x, y, w, h, r);
+    g.fill();
+  }
+
+  private paintButton(node: Node, w: number, h: number) {
+    const g = node.getComponent(Graphics) || node.addComponent(Graphics);
+    g.clear();
+    g.fillColor = colorFromHex('#f2c97e');
+    g.roundRect(-w / 2, -h / 2, w, h, 18);
+    g.fill();
+    g.strokeColor = colorFromHex('#c98a4b');
+    g.lineWidth = 3;
+    g.roundRect(-w / 2, -h / 2, w, h, 18);
+    g.stroke();
+  }
+
+  private bindClick(node: Node, onClick: () => void) {
+    node.on(Node.EventType.TOUCH_END, (e: EventTouch) => {
+      e.propagationStopped = true;
+      onClick();
+    });
+  }
+
   private showLobby() {
     this.lobby.active = true;
     this.menu.active = false;
@@ -405,7 +410,6 @@ export class GameApp extends Component {
     this.lobby.active = false;
     this.menu.active = true;
     this.game.active = false;
-    if (this.board) this.board.running = false;
     this.menuPage = Math.floor((this.loadProgress() - 1) / this.pageSize);
     this.refreshLevelGrid();
   }

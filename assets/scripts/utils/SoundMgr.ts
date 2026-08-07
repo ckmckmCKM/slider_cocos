@@ -1,5 +1,6 @@
-import { AudioClip, AudioSource, Node, resources } from 'cc';
+import { AudioClip, AudioSource, Node } from 'cc';
 import { AUDIO_MAP } from './Constants';
+import { ResCache } from './ResCache';
 
 export class SoundMgr {
   private static _clips: Record<string, AudioClip> = {};
@@ -13,9 +14,10 @@ export class SoundMgr {
     this._bgm = host.addComponent(AudioSource);
     this._bgm.loop = true;
     this._bgm.volume = 0.28;
+    const bundle = await ResCache.loadGameBundle();
     const names = Object.keys(AUDIO_MAP);
     await Promise.all(names.map((k) => new Promise<void>((resolve) => {
-      resources.load(AUDIO_MAP[k], AudioClip, (err, clip) => {
+      bundle.load(AUDIO_MAP[k], AudioClip, (err, clip) => {
         if (!err && clip) this._clips[k] = clip;
         resolve();
       });

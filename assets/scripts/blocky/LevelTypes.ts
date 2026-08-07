@@ -13,6 +13,8 @@ export interface PictureData {
   isPencil: boolean;
   isFlipX: boolean;
   isFlipY: boolean;
+  /** game/icon_bg 底图文件名（无扩展名）；关卡字段写作 `iconBg=di_2_2` */
+  nameIconBg: string;
 }
 
 export interface ShapePictureData {
