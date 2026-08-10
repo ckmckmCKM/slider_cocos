@@ -211,7 +211,7 @@ export class SliderGameView extends ViewBase {
     const defs: { key: string; tip: string; instant?: boolean }[] = [
       { key: 'freeze', tip: '', instant: true },
       { key: 'magnet', tip: '点击一张图，自动完成' },
-      { key: 'slicer', tip: '点击要切开的方块' },
+      { key: 'slicer', tip: '点击要切开的方块，切成1×1碎块' },
       { key: 'teleport', tip: '选择两块交换位置' },
     ];
     for (const d of defs) {

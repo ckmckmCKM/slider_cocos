@@ -7,7 +7,7 @@ import { colorFromHex, shadeHex } from '../utils/Helpers';
 import { ResCache } from '../utils/ResCache';
 import { SoundMgr } from '../utils/SoundMgr';
 import { addLabel, makeNode, setSprite } from '../utils/UIFactory';
-import { ArrowDirection, MechanicType, TypeEnvironment, colorHex, hasMechanic } from './Enums';
+import { ArrowDirection, MechanicType, ShapeType, TypeEnvironment, colorHex, hasMechanic } from './Enums';
 import {
   ColorPathRuntime, GrinderRuntime, RollerRuntime, RotatorRuntime, TunnelRuntime, WoodenBoxRuntime,
   colorFlagBits, grinderCells, rotateCellCW, rotatorArmCells,
@@ -97,6 +97,7 @@ export class BoardController {
   activeTool: string | null = null;
   frozenTimer = 0;
   cell = CELL;
+  private nextPieceId = 1;
   private drag: {
     piece: Piece;
     group: Piece[];
@@ -155,6 +156,7 @@ export class BoardController {
     this.board = [];
     this.loseReason = null;
     this.picMap.clear();
+    this.nextPieceId = 1;
   }
 
 
@@ -397,6 +399,7 @@ export class BoardController {
         piece.node.active = false;
       }
       this.pieces.push(piece);
+      this.nextPieceId = Math.max(this.nextPieceId, s.id + 1);
     }
   }
 
@@ -2031,16 +2034,7 @@ export class BoardController {
   private useToolOn(kind: string, piece: Piece) {
     if ((this.tools as any)[kind] <= 0) return;
     if (kind === 'slicer') {
-      if (!piece.alive || piece.ice > 0 || piece.lock > 0) {
-        this.cb.onToast('无法切开');
-        return;
-      }
-      this.tools.slicer--;
-      SoundMgr.play('hammer');
-      piece.alive = false;
-      this.flyOut(piece);
-      this.activeTool = null;
-      this.onAfterMove();
+      void this.useSlicer(piece);
     } else if (kind === 'magnet') {
       if (!piece.matchable || piece.ice > 0 || piece.lock > 0 || piece.colorBlock > 0 || piece.contained) {
         this.cb.onToast('无法使用磁铁');
@@ -2092,5 +2086,78 @@ export class BoardController {
       SoundMgr.play('click');
       this.onAfterMove();
     }
+  }
+
+  /** 锯子：将多格方块切成若干 1×1 碎块 */
+  private async useSlicer(piece: Piece) {
+    if (
+      !piece.alive
+      || piece.ice > 0
+      || piece.lock > 0
+      || piece.contained
+      || piece.inTunnel
+      || piece.hiddenUnder
+      || piece.colorBlock > 0
+      || piece.idLayered >= 0
+      || piece.cells.length <= 1
+    ) {
+      this.cb.onToast('无法切开');
+      return;
+    }
+    if (this.tools.slicer <= 0) return;
+
+    this.tools.slicer--;
+    SoundMgr.play('hammer');
+    this.activeTool = null;
+
+    const slicedId = piece.id;
+    const cells = piece.cells.map((c) => ({ ...c }));
+    const picIndices = piece.picIndices.slice();
+    const pic = this.picMap.get(piece.idPanelPicture) || null;
+    const template: ShapePictureData = {
+      id: 0,
+      rotation: 0,
+      posRelative: [{ x: 0, y: 0 }],
+      listPos: [],
+      listIndexPicture: [],
+      shapeType: ShapeType.block_1,
+      idPanelPicture: piece.idPanelPicture,
+      color: piece.color,
+      mechanic: piece.mechanic,
+      arrowDirection: piece.arrow,
+      isObstacle: piece.isObstacle,
+      numberIce: 0,
+      numberLock: 0,
+      listPosKey: [],
+      idCombineds: [],
+      idLayered: -1,
+      timeBomb: 0,
+      colorBlock: 0,
+      numberMystery: 0,
+    };
+
+    // 从其他合体块中解除引用
+    for (const p of this.pieces) {
+      if (!p.idCombineds.length) continue;
+      if (p.idCombineds.indexOf(slicedId) < 0) continue;
+      p.idCombineds = p.idCombineds.filter((id) => id !== slicedId);
+    }
+
+    piece.alive = false;
+    if (piece.node?.isValid) piece.node.destroy();
+
+    for (let i = 0; i < cells.length; i++) {
+      const cell = cells[i];
+      const shape: ShapePictureData = {
+        ...template,
+        id: this.nextPieceId++,
+        listPos: [{ x: cell.x, y: cell.y }],
+        listIndexPicture: [picIndices[i] ?? -1],
+      };
+      const frag = await this.makePiece(shape, pic);
+      this.pieces.push(frag);
+    }
+
+    this.onAfterMove();
   }
 }

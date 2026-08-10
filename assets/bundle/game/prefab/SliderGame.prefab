@@ -1393,7 +1393,7 @@
     "_lpos": {
       "__type__": "cc.Vec3",
       "x": 0,
-      "y": -816.1,
+      "y": -625.896,
       "z": 0
     },
     "_lrot": {
@@ -1730,8 +1730,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 12.8,
-      "height": 39.9
+      "width": 12.79150390625,
+      "height": 40.32
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -1769,7 +1769,7 @@
     "_string": "0",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 16,
+    "_actualFontSize": 23,
     "_fontSize": 23,
     "_fontFamily": "Arial",
     "_lineHeight": 32,
@@ -2310,8 +2310,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 12.8,
-      "height": 39.9
+      "width": 12.79150390625,
+      "height": 40.32
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -2349,7 +2349,7 @@
     "_string": "0",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 16,
+    "_actualFontSize": 23,
     "_fontSize": 23,
     "_fontFamily": "Arial",
     "_lineHeight": 32,
@@ -2890,8 +2890,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 12.8,
-      "height": 39.9
+      "width": 12.79150390625,
+      "height": 40.32
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -2929,7 +2929,7 @@
     "_string": "0",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 16,
+    "_actualFontSize": 23,
     "_fontSize": 23,
     "_fontFamily": "Arial",
     "_lineHeight": 32,
@@ -3175,7 +3175,7 @@
         "__id__": 134
       }
     ],
-    "_active": true,
+    "_active": false,
     "_components": [
       {
         "__id__": 146
@@ -3470,8 +3470,8 @@
     },
     "_contentSize": {
       "__type__": "cc.Size",
-      "width": 12.8,
-      "height": 39.9
+      "width": 12.79150390625,
+      "height": 40.32
     },
     "_anchorPoint": {
       "__type__": "cc.Vec2",
@@ -3509,7 +3509,7 @@
     "_string": "0",
     "_horizontalAlign": 1,
     "_verticalAlign": 1,
-    "_actualFontSize": 16,
+    "_actualFontSize": 23,
     "_fontSize": 23,
     "_fontFamily": "Arial",
     "_lineHeight": 32,
