@@ -70,6 +70,9 @@ export interface GEditorFrameNode extends GEditorNodeBase {
   autoSkip: GEditorAutoSkip | null;
   popup: GEditorPopup | null;
   dialogueChain?: GEditorDialogueLine[] | null;
+  soundNodeId?: string | null;
+  soundMode?: 'bgm' | 'sfx' | string | null;
+  soundFile?: string | null;
 }
 
 export interface GEditorGameNode extends GEditorNodeBase {
@@ -97,6 +100,28 @@ export interface GEditorPopupNode extends GEditorNodeBase {
   iconNodeId?: string | null;
   bgFile: string | null;
   iconFile: string | null;
+  /** 出现动效：fade | zoom | fade-zoom | none */
+  inEffect?: string;
+  /** 出现动效时长（秒） */
+  inDurationSec?: number;
+}
+
+export type GEditorPopupInEffect = 'fade' | 'zoom' | 'fade-zoom' | 'none';
+
+export const DEFAULT_POPUP_IN_EFFECT: GEditorPopupInEffect = 'fade-zoom';
+export const DEFAULT_POPUP_IN_SEC = 0.35;
+
+export function resolvePopupInEffect(raw: string | null | undefined): GEditorPopupInEffect {
+  const s = String(raw ?? '').trim();
+  if (s === 'fade' || s === 'zoom' || s === 'fade-zoom' || s === 'none') return s;
+  return DEFAULT_POPUP_IN_EFFECT;
+}
+
+export function resolvePopupInDurationSec(raw: number | null | undefined): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 0) return DEFAULT_POPUP_IN_SEC;
+  if (n === 0) return 0;
+  return Math.min(3, Math.max(0.05, Math.round(n * 100) / 100));
 }
 
 export type GEditorStoryNode = GEditorFrameNode | GEditorGameNode | GEditorPopupNode;
@@ -116,6 +141,13 @@ export interface GEditorTextNode {
   target: string | null;
 }
 
+export interface GEditorSoundNode {
+  id: string;
+  mode: 'bgm' | 'sfx' | string;
+  audioFile: string | null;
+  target: string | null;
+}
+
 export interface GEditorStoryConfig {
   format: 'geditor-cocos';
   version: number;
@@ -128,6 +160,7 @@ export interface GEditorStoryConfig {
   nodes: GEditorStoryNode[];
   textureNodes: GEditorTextureNode[];
   textNodes: GEditorTextNode[];
+  soundNodes?: GEditorSoundNode[];
 }
 
 export function isGEditorStoryConfig(data: unknown): data is GEditorStoryConfig {
@@ -283,6 +316,8 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
         iconFile: resolveTexFile(node.iconNodeId, node.iconFile),
         bgNodeId: node.bgNodeId || null,
         iconNodeId: node.iconNodeId || null,
+        inEffect: resolvePopupInEffect(node.inEffect),
+        inDurationSec: resolvePopupInDurationSec(node.inDurationSec),
       };
     }
 

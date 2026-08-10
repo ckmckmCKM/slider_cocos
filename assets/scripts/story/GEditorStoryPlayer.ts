@@ -2,10 +2,10 @@
  * GEditor 剧情播放器（geditor-cocos 格式）
  *
  * 骨架能力：sequence 主链、frame 渐隐渐现、同帧对话、popup 热点、game 关卡节点。
- * 待补：autoSkip blur/mosaic 视觉效果、语音 audioFile、非 fade 转场、popup 黑底 heidi 配对。
+ * 待补：autoSkip blur/mosaic 视觉效果、语音 audioFile、非 fade 转场。
  */
 import {
-  _decorator, BlockInputEvents, Component, EventTouch, instantiate, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, tween,
+  _decorator, BlockInputEvents, Component, EventTouch, instantiate, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, tween, Vec3,
 } from 'cc';
 import { DialogueView } from '../dialogue/DialogueView';
 import { DESIGN_H, DESIGN_W } from '../utils/Constants';
@@ -19,7 +19,7 @@ import {
   GEditorFrameNode, GEditorGameNode, GEditorPopupNode, GEditorPopupTrigger, GEditorStoryConfig, GEditorStoryNode,
   geditorNodeHasCaption, geditorPopupExecBg, geditorPopupExecIcon, geditorTextureStepName,
   inferPopupExecFromLegacyFrameName, isGEditorFrameNode, isGEditorGameNode, isGEditorPopupExecNode,
-  resolveGateBtnLayout,
+  resolveGateBtnLayout, resolvePopupInDurationSec, resolvePopupInEffect,
 } from './GEditorTypes';
 
 const { ccclass } = _decorator;
@@ -56,6 +56,7 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   private _subBg!: Node;
   private _subIcon!: Node;
   private _subviewActive = false;
+  private _subIconScaleTween: Tween<Node> | null = null;
 
   private _dialogueView: DialogueView | null = null;
   private _tipPopup: TipPopup | null = null;
@@ -143,6 +144,7 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     if (this._frameBOpacity) this.stopOpacityTween(this._frameBOpacity);
     if (this._popupOpacity) this.stopOpacityTween(this._popupOpacity);
     if (this._subOpacity) this.stopOpacityTween(this._subOpacity);
+    this.stopSubIconScaleTween();
   }
 
   setGameRequestHandler(handler: ((level: number, onWin: () => void) => void) | null) {
@@ -481,17 +483,74 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
 
     this._subRoot.active = true;
     this._subviewActive = true;
-    this._subOpacity.opacity = 0;
-    await this.fadeOpacity(this._subOpacity, 255);
+    await this.animatePopupExecIn(node);
     disableSpriteTrimSubtree(this._subRoot);
     this._subRoot.setSiblingIndex(this.node.children.length - 1);
+  }
+
+  private stopSubIconScaleTween() {
+    if (this._subIconScaleTween) {
+      this._subIconScaleTween.stop();
+      this._subIconScaleTween = null;
+    }
+  }
+
+  private async animatePopupExecIn(node: GEditorPopupNode): Promise<void> {
+    const effect = resolvePopupInEffect(node.inEffect);
+    const sec = resolvePopupInDurationSec(node.inDurationSec);
+
+    this.stopOpacityTween(this._subOpacity);
+    this.stopSubIconScaleTween();
+
+    if (effect === 'none' || sec === 0) {
+      this._subOpacity.opacity = 255;
+      this._subIcon.setScale(1, 1, 1);
+      return;
+    }
+
+    const needsFade = effect === 'fade' || effect === 'fade-zoom';
+    const needsZoom = effect === 'zoom' || effect === 'fade-zoom';
+
+    this._subOpacity.opacity = needsFade ? 0 : 255;
+    this._subIcon.setScale(needsZoom ? 0.72 : 1, needsZoom ? 0.72 : 1, 1);
+
+    await new Promise<void>((resolve) => {
+      let pending = 0;
+      const onDone = () => {
+        pending -= 1;
+        if (pending <= 0) resolve();
+      };
+
+      if (needsFade) {
+        pending += 1;
+        tween(this._subOpacity)
+          .to(sec, { opacity: 255 })
+          .call(onDone)
+          .start();
+      }
+
+      if (needsZoom) {
+        pending += 1;
+        this._subIconScaleTween = tween(this._subIcon)
+          .to(sec, { scale: new Vec3(1, 1, 1) }, { easing: 'sineOut' })
+          .call(() => {
+            this._subIconScaleTween = null;
+            onDone();
+          })
+          .start();
+      }
+
+      if (pending === 0) resolve();
+    });
   }
 
   private hideSubview() {
     setSprite(this._subIcon, null);
     this.stopOpacityTween(this._subOpacity);
+    this.stopSubIconScaleTween();
     this._subRoot.active = false;
     this._subOpacity.opacity = 255;
+    this._subIcon.setScale(1, 1, 1);
     this._subviewActive = false;
     this.hideMountedStoryGame();
   }
