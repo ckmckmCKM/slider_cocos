@@ -14,6 +14,8 @@ alwaysApply: true
 - 关卡解析：`assets/scripts/blocky/LevelParser.ts`
 - 关卡文件：`assets/bundle/game/levels_br/Lv_XXXX.txt`（650 关，**game bundle**）
 - 校验：`node tools/validate-levels.mjs 1 100`
+- 剧情编辑器：`GEditor/index.html`（导出 **geditor-cocos** → `story1/story.json`）
+- 剧情播放：`assets/scripts/story/GEditorStoryPlayer.ts` · 类型 `GEditorTypes.ts`
 
 ## 必读陷阱
 
@@ -24,6 +26,7 @@ alwaysApply: true
 5. 胜利 = 所有 `PictureData` 拼合揭示，不是同色消除。
 6. `clear()` 中 `wallIce` 已在 `decor` 里，勿重复 destroy。
 7. 玩法资源在 **game Asset Bundle**（`assets/bundle/game`）；**TypeScript 逻辑必须留在 `assets/scripts/blocky`**，勿放进 bundle 目录（预览时无法被主工程 import）
+8. **GEditor**：编辑器在 `GEditor/`；剧情 TS 在 `assets/scripts/story/`。改导出字段须同步 `app.js` · `GEditorTypes.ts` · `GEditorStoryPlayer.ts`。exec 链 Popup 动效字段：`popupInEffect` / `popupInSec` → 导出 `inEffect` / `inDurationSec`
 
 ## 代码风格
 

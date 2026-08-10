@@ -58,7 +58,10 @@ slider_cocos/
 │       │   ├── PopupBase.ts        # 弹窗基类
 │       │   └── TipPopup.ts
 │       ├── story/
-│       │   ├── StoryPlayer.ts
+│       │   ├── GEditorStoryPlayer.ts # ★ 当前剧情播放器（geditor-cocos）
+│       │   ├── GEditorTypes.ts     # 导出格式类型与 normalize
+│       │   ├── GEditorStoryPlayback.ts
+│       │   ├── StoryPlayer.ts      # ⚠ 旧版 steps 格式，已屏蔽
 │       │   └── StoryTypes.ts
 │       ├── dialogue/
 │       │   └── DialogueView.ts
@@ -77,6 +80,10 @@ slider_cocos/
 │   ├── prefab-common.mjs           # 内置 default_btn_normal、按文件是否存在选图
 │   ├── gen-home-prefabs.mjs        # 生成 Lobby / Menu 预制体
 │   └── gen-slider-game-prefab.mjs  # 生成 SliderGame 预制体
+├── GEditor/                        # ★ 竖屏剧情可视化编辑器（导出 geditor-cocos）
+│   ├── index.html
+│   ├── app.js                      # 蓝图 / 胶片条 / 手机预览 / 工程保存 / Cocos 导出
+│   └── styles.css
 ├── docs/
 │   └── ARCHITECTURE.md
 └── README.md
@@ -299,6 +306,80 @@ ResCache.loadComPrefab()     // com bundle 预制体
 
 **已有预制体（历史）：** `Lobby` / `Menu` / `SliderGame` 为早期脚手架，仅维护不改骨架；**新界面不要按它们的层级抄。**
 
+### 4.7 GEditor 剧情编辑器与播放器
+
+竖屏互动剧情流水线：**GEditor 蓝图编辑** → 导出 **geditor-cocos** JSON → 放入 **story bundle** → `GEditorStoryPlayer` 播放。
+
+#### 4.7.1 编辑器（`GEditor/`）
+
+| 文件 | 说明 |
+|------|------|
+| `index.html` | 单页入口：手机预览 + 蓝图画布 + 胶片条 |
+| `app.js` | 节点/连线、工程 `geditor-project` 保存加载、`buildCocosExport()` |
+| `styles.css` | 蓝图节点样式、手机预览叠层（含 Popup 动效 CSS） |
+
+**使用：** 用浏览器打开 `GEditor/index.html`（或本地静态服）。编辑后 **导出 Cocos** 得到 `*.cocos.json`（仅文件名索引，不含二进制）；贴图/音频需**手动**拷入对应 story bundle。
+
+**工程保存：** 支持自定义文件名与保存位置（`showSaveFilePicker` 或下载目录回退）。
+
+#### 4.7.2 蓝图节点类型
+
+| 工具栏节点 | 导出 `kind` | 说明 |
+|------------|-------------|------|
+| Frame | `frame` | 主链帧：底图、台词、入/出场动效、`holdSec`、Frame 内 Popup 热点等 |
+| Game | `game` | 关卡入口：`gateFrame` + `gateBtn` + `levelId` |
+| Popup | `popup` | **exec 链**自动叠层（黑底 heidi + 居中 icon，运行时对应 `geditorSubview`） |
+| Texture | `textureNodes[]` | 纹理资源节点，经引脚连到 Frame / Popup / Game |
+| Text | `textNodes[]` | 台词资源节点 |
+| Sound | `soundNodes[]` | BGM / SFX 资源节点（**编辑器预览**：切 exec 时 BGM 播放/切换、SFX 单次播放；点 Stop 停止全部音频；Cocos 运行时**未接**） |
+
+**exec 链：** 黄色 `exec-in` / `exec-out` 串联 Frame / Game / Popup 播放顺序；蓝色线为 Texture / Text / Sound 数据引脚。
+
+#### 4.7.3 Popup 出现动效（exec 链 Popup 节点）
+
+| 编辑器字段 | 导出字段 | 说明 |
+|------------|----------|------|
+| `popupInEffect` | `inEffect` | `fade` 淡入 · `zoom` 放大 · `fade-zoom` 淡入+放大 · `none` 无 |
+| `popupInSec` | `inDurationSec` | 秒，0–3；默认 **0.35** |
+
+- 编辑器：Popup 节点下拉 + 时长输入；手机预览 `popup-overlay-layer` 即时重播。
+- 运行时：`GEditorStoryPlayer.presentPopupExecNode()` → `animatePopupExecIn()`（`UIOpacity` + icon `scale` tween）。
+- 类型与默认值：`GEditorTypes.resolvePopupInEffect` / `resolvePopupInDurationSec`。
+
+> **区分：** Frame 上挂的 **热点 Popup**（`frame.popup` + trigger）与 exec 链 **Popup 节点**是两套机制；出现动效目前仅作用于后者。
+
+#### 4.7.4 导出格式 `geditor-cocos`
+
+根对象字段（与 `GEditorTypes.GEditorStoryConfig` 一致）：
+
+| 字段 | 说明 |
+|------|------|
+| `format` | 固定 `"geditor-cocos"` |
+| `transition` | 全局帧间转场 `{ type, durationMs }`（工具栏「帧间转场」） |
+| `sequence` | exec 主链节点 id 顺序 |
+| `nodes` | `frame` / `game` / `popup` 节点数组 |
+| `textureNodes` / `textNodes` / `soundNodes` | 资源侧车表 |
+| `assets.textures` / `assets.audios` | 去重文件名列表 |
+
+**落盘约定（story bundle，如 `story1`）：**
+
+```
+assets/bundle/story1/
+├── story.json              # 重命名后的导出 JSON（或保持工程内文件名，ResCache 按 bundle 名加载）
+└── sprite/step/{name}      # 导出 textures 列表中的 step 图（无扩展名加载）
+```
+
+`ResCache.loadGEditorStoryConfig(name)` → `normalizeGEditorStoryConfig()` 修补旧字段（如 `subview` → `popup`、缺省 gate 图）。
+
+#### 4.7.5 运行时播放（`GEditorStoryPlayer`）
+
+- `GameApp` 在 Story 根节点挂 **`GEditorStoryPlayer`**（`StoryPlayer` 已废弃）。
+- 节点层：`frameLayer`（双缓冲 crossfade）· `geditorPopup`（Frame 热点纸条）· `geditorSubview`（exec Popup 黑底+icon）· `gameGate`。
+- 剧情内 SliderGame 挂在 `frameLayer` 与 `subview` 之间（见 §3.1）。
+- 接口：`GEditorStoryPlayback`（`setGameRequestHandler` / `setSubviewCloseHandler`）。
+
+**能力边界（待补）：** Sound 节点播放、Frame `autoSkip` blur/mosaic 视觉效果、非 fade 帧间转场、`audioFile` 语音。
+
 ---
 
 ## 5. 关卡数据格式
@@ -442,6 +523,7 @@ Local: gridToLocal(x,y) → ((x-cxm)*C, (y-cym)*C)
 | 大厅/选关预制体 | — | `prefab/Lobby` / `prefab/Menu` | **home** |
 | 公共弹窗 | — | `prefab/Dialogue` 等 | **com** |
 | 剧情 | — | `story.json`、`sprite/step/*` | **story1** |
+| 剧情编辑 | — | `GEditor/`（不打包进 bundle） | 仓库根目录 |
 
 `ResCache.loadSprite` 会依次尝试 `{path}/spriteFrame`、`{path}`、`ImageAsset`。
 
@@ -514,6 +596,19 @@ node tools/gen-slider-game-prefab.mjs
 
 见 `README.md`：1 → 10 → 75(双层) → 112(绳索) → 172(传送门) → … → 601(旋转器)
 
+### 9.5 GEditor 剧情编辑器
+
+| 项 | 说明 |
+|----|------|
+| 入口 | 浏览器打开 `GEditor/index.html` |
+| 工程格式 | `geditor-project`（含帧图 data URL / blob 引用） |
+| 导出格式 | `geditor-cocos` JSON → 拷入 `assets/bundle/{storyName}/story.json` |
+| 资源 | 导出 JSON 中的 `assets.textures` / `audios` 文件名 → 手动放入 bundle 对应目录 |
+| 类型定义 | `assets/scripts/story/GEditorTypes.ts`（与 `GEditor/app.js` `buildCocosExport` 对齐） |
+| 运行时 | `GEditorStoryPlayer` + `ResCache.loadGEditorStoryConfig` |
+
+**注意：** 多个不同图源若导出为**同名文件**，Cocos 扁平 `sprite/step/` 下会冲突，导出完成时会弹窗提示。TypeScript 逻辑放在 `assets/scripts/story/`，**不要**放进 bundle 目录。
+
 ---
 
 ## 10. 已知陷阱（智能体必读）
@@ -528,6 +623,9 @@ node tools/gen-slider-game-prefab.mjs
 8. **UI 以预制体为主** — 已有 Lobby/Menu/SliderGame 为历史脚手架；**新建**弹窗/全屏界面须复制 `com/prefab/PopupTemplate`。改交互去对应 `*View.ts`；通用绘制用 `UIFactory`
 9. **拖动范围不能按初始行列缓存** — 拼块可能先沿一轴绕开障碍，再沿另一轴继续移动；碰撞必须基于当前 `cells` 逐步判定
 10. **图片遮罩不要拆成逐格矩形** — 活跃实现是 `picture` 节点上的单个 `GRAPHICS_STENCIL`，轮廓必须复用 `makePiece` 的 rounded loops
+11. **GEditor 与 Cocos 分工** — 编辑器在 `GEditor/`；播放逻辑在 `assets/scripts/story/`。改导出字段须同步 `GEditorTypes.ts`、`app.js` `buildCocosExport`、`GEditorStoryPlayer`
+12. **exec Popup ≠ Frame 热点 Popup** — exec 链 `kind: popup` 走 `geditorSubview`；Frame 的 `popup` + `trigger` 走 `geditorPopup`，二者动效字段不共用
+13. **旧工程 `subview` 节点** — 加载时迁移为 `popup`；Cocos 侧 `normalizeGEditorStoryConfig` 同样处理
 
 ---
 
@@ -552,6 +650,14 @@ node tools/gen-slider-game-prefab.mjs
 2. `LevelParser.parseShapes`（若字段已有则跳过）
 3. `BoardController.canMove` / `isPictureAssembled` / 完成图后处理
 
+### 修改剧情 / GEditor 导出
+
+1. **编辑器 UI / 导出字段：** `GEditor/app.js`（`buildCocosExport`、`normalizeArchiveFrame`、蓝图 `createBpNode`）
+2. **类型与 normalize：** `assets/scripts/story/GEditorTypes.ts`
+3. **运行时行为：** `assets/scripts/story/GEditorStoryPlayer.ts`
+4. **加载：** `ResCache.loadGEditorStoryConfig` / `storyStepSprite`
+5. 新增节点类型或引脚：编辑器 save/load、导出、Types、Player 四处贯通
+
 ### 修改 UI
 
 - **新建弹窗 / 全屏界面：** 复制 `com/prefab/PopupTemplate.prefab` → 在 `content` 下搭 UI → 脚本继承 `PopupBase` 或 `ViewBase`（见 §4.6）
@@ -572,10 +678,15 @@ GameApp
   │         ├─ blocky/LevelParser ── blocky/LevelTypes, Enums
   │         ├─ blocky/EnvHelpers ── LevelTypes, Enums
   │         └─ utils/ResCache, SoundMgr, Constants, Helpers
-  └─ story/StoryPlayer ── com prefab, story bundle
+  └─ story/GEditorStoryPlayer ── GEditorTypes, ResCache, com prefab, story bundle
+       └─ StoryPlayer（旧 steps 格式，已废弃）
 
 ResCache
-  └─ blocky/LevelParser
+  ├─ blocky/LevelParser
+  └─ story/GEditorTypes（geditor-cocos normalize）
+
+GEditor/（独立 Web 工具，不参与 Cocos 编译）
+  └─ 导出 JSON → assets/bundle/story1/story.json
 
 UIFactory
   └─ Helpers, Constants
@@ -600,6 +711,9 @@ UIFactory
 | 2026-08-07 | **home bundle**：Lobby/Menu 预制体；`UIFactory` 统一 UI 工具；预制体按钮无美术图时用内置 `default_btn_normal` + `txt` Label |
 | 2026-08-07 | `setSprite` 默认关闭 Sprite **Trim**（`trim` / `isTrimmedMode`） |
 | 2026-08-07 | **UI 预制体规范**：新建弹窗/全屏界面统一复制 `com/prefab/PopupTemplate`（`mask` + `panel` + `content`） |
+| 2026-08-10 | **GEditor** 剧情蓝图编辑器（`GEditor/`）：geditor-project 工程、geditor-cocos 导出、Sound 节点（编辑器侧） |
+| 2026-08-10 | 剧情播放切换为 **`GEditorStoryPlayer`**；`StoryPlayer`（旧 steps）废弃 |
+| 2026-08-10 | exec 链 **Popup 出现动效**：`inEffect`（fade / zoom / fade-zoom / none）+ `inDurationSec` |
 
 ---
 
