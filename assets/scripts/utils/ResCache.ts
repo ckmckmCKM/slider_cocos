@@ -5,6 +5,7 @@ import { LevelParser } from '../blocky/LevelParser';
 import { LevelConfig } from '../blocky/LevelTypes';
 import { LevelsMap } from './LevelTypes';
 import { StoryConfig } from '../story/StoryTypes';
+import { GEditorStoryConfig, isGEditorStoryConfig, normalizeGEditorStoryConfig } from '../story/GEditorTypes';
 
 export class ResCache {
   private static _levels: LevelsMap | null = null;
@@ -22,6 +23,8 @@ export class ResCache {
   private static _storyBundles = new Map<string, AssetManager.Bundle>();
   private static _storyBundleLoading = new Map<string, Promise<AssetManager.Bundle>>();
   private static _storyJson: Record<string, StoryConfig> = {};
+  private static _geditorStoryJson: Record<string, GEditorStoryConfig> = {};
+  private static _storyDocRaw: Record<string, unknown> = {};
 
   static maxBrLevel() { return this._maxBrLevel; }
 
@@ -150,9 +153,9 @@ export class ResCache {
     return p;
   }
 
-  /** 剧情顺序 JSON：bundle 根目录 story.json */
-  static async loadStoryConfig(name = 'story1'): Promise<StoryConfig | null> {
-    if (this._storyJson[name]) return this._storyJson[name];
+  /** 加载 story.json 原始文档（自动识别 geditor-cocos / 旧 steps 格式） */
+  static async loadStoryDocument(name = 'story1'): Promise<unknown | null> {
+    if (this._storyDocRaw[name] !== undefined) return this._storyDocRaw[name];
     const bundle = await this.loadStoryBundle(name);
     return new Promise((resolve) => {
       bundle.load('story', JsonAsset, (err, asset) => {
@@ -161,11 +164,39 @@ export class ResCache {
           resolve(null);
           return;
         }
-        const data = asset.json as StoryConfig;
-        this._storyJson[name] = data;
+        const data = asset.json;
+        this._storyDocRaw[name] = data;
+        if (isGEditorStoryConfig(data)) {
+          this._geditorStoryJson[name] = normalizeGEditorStoryConfig(data);
+        } else {
+          this._storyJson[name] = data as StoryConfig;
+        }
         resolve(data);
       });
     });
+  }
+
+  static async isGEditorStoryFormat(name = 'story1'): Promise<boolean> {
+    const doc = await this.loadStoryDocument(name);
+    return isGEditorStoryConfig(doc);
+  }
+
+  /** GEditor 导出：geditor-cocos */
+  static async loadGEditorStoryConfig(name = 'story1'): Promise<GEditorStoryConfig | null> {
+    if (this._geditorStoryJson[name]) return this._geditorStoryJson[name];
+    const doc = await this.loadStoryDocument(name);
+    if (!isGEditorStoryConfig(doc)) return null;
+    const normalized = normalizeGEditorStoryConfig(doc);
+    this._geditorStoryJson[name] = normalized;
+    return normalized;
+  }
+
+  /** 剧情顺序 JSON：bundle 根目录 story.json（旧 steps 格式） */
+  static async loadStoryConfig(name = 'story1'): Promise<StoryConfig | null> {
+    if (this._storyJson[name]) return this._storyJson[name];
+    const doc = await this.loadStoryDocument(name);
+    if (!doc || isGEditorStoryConfig(doc)) return null;
+    return doc as StoryConfig;
   }
 
   /** 剧情 step 图：sprite/step/{stepName} */

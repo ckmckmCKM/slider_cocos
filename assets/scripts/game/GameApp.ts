@@ -7,7 +7,7 @@ import { ResCache } from '../utils/ResCache';
 import { SoundMgr } from '../utils/SoundMgr';
 import { fullWidget, makeNode } from '../utils/UIFactory';
 import { UIRootAdapter } from '../ui/UIRootAdapter';
-import { StoryPlayer } from '../story/StoryPlayer';
+import { GEditorStoryPlayer } from '../story/GEditorStoryPlayer';
 import { SliderGameView } from './SliderGameView';
 import { GmEntry } from './GmEntry';
 import { LobbyView } from '../home/LobbyView';
@@ -23,7 +23,8 @@ export class GameApp extends Component {
   private gameNode: Node | null = null;
   private sliderGame: SliderGameView | null = null;
   private storyRoot!: Node;
-  private storyPlayer!: StoryPlayer;
+  /** 旧版 StoryPlayer 已屏蔽，仅用 GEditor */
+  private storyPlayer!: GEditorStoryPlayer;
   private gmEntry!: GmEntry;
 
   private maxLevel = 1;
@@ -76,13 +77,8 @@ export class GameApp extends Component {
     g.fillColor = colorFromHex('#000000');
     g.rect(-DESIGN_W / 2, -DESIGN_H / 2, DESIGN_W, DESIGN_H);
     g.fill();
-    this.storyPlayer = this.storyRoot.addComponent(StoryPlayer);
+    this.storyPlayer = this.storyRoot.addComponent(GEditorStoryPlayer);
     this.storyPlayer.setSubviewCloseHandler(() => this.hideStoryGameIfMounted());
-    this.storyPlayer.setStoryGameOverlayHandler((blocked) => {
-      if (this.gameNode?.parent === this.storyRoot) {
-        this.sliderGame?.setStoryOverlayBlocked(blocked);
-      }
-    });
 
     this.gmEntry = this.uiRoot.getComponent(GmEntry) || this.uiRoot.addComponent(GmEntry);
     await this.gmEntry.setup({
@@ -189,7 +185,6 @@ export class GameApp extends Component {
   }
 
   private hideStoryGameIfMounted() {
-    this.sliderGame?.setStoryOverlayBlocked(false);
     if (this.gameNode?.parent === this.storyRoot) {
       this.sliderGame?.hide();
     }
@@ -240,6 +235,7 @@ export class GameApp extends Component {
     this.sliderGame?.hide();
     this.sliderGame?.setStoryWinHandler(null);
     this.storyRoot.active = true;
+
     this.storyPlayer.setGameRequestHandler((level, onWin) => {
       void this.enterGameFromStory(level, onWin);
     });
@@ -262,7 +258,6 @@ export class GameApp extends Component {
       return;
     }
     this.hideHomeUi();
-    game.setStoryOverlayBlocked(false);
     game.open();
   }
 

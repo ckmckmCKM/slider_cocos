@@ -1,3 +1,7 @@
+/**
+ * 旧版剧情播放器（已屏蔽：GameApp 仅挂载 GEditorStoryPlayer）。
+ * 保留源码便于对照 / 日后恢复；勿在入口重新 addComponent。
+ */
 import {
   _decorator, BlockInputEvents, Component, EventTouch, instantiate, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, tween,
 } from 'cc';
@@ -10,6 +14,7 @@ import {
   isStoryDialogue, isStoryGameGate, isStorySubview,
   StoryStep, StoryStepDialogue, StoryStepGameGate, StoryStepSubview,
 } from './StoryTypes';
+import { GEditorStoryPlayback } from './GEditorStoryPlayback';
 
 const { ccclass } = _decorator;
 
@@ -19,7 +24,7 @@ const GATE_BTN_MARGIN_X = 120;
 const GATE_BTN_MARGIN_Y = 140;
 
 @ccclass('StoryPlayer')
-export class StoryPlayer extends Component {
+export class StoryPlayer extends Component implements GEditorStoryPlayback {
   private _storyName = 'story1';
   private _steps: StoryStep[] = [];
   private _index = 0;
@@ -44,7 +49,6 @@ export class StoryPlayer extends Component {
   private _gateStep: StoryStepGameGate | null = null;
   private _onGameRequest: ((level: number, onWin: () => void) => void) | null = null;
   private _onSubviewClose: (() => void) | null = null;
-  private _onStoryGameOverlay: ((blocked: boolean) => void) | null = null;
   private _onFinished: (() => void) | null = null;
 
   onLoad() {
@@ -111,15 +115,6 @@ export class StoryPlayer extends Component {
     this._onSubviewClose = handler;
   }
 
-  /** subview 打开/关闭时屏蔽下层 Story 内 Game 的触摸 */
-  setStoryGameOverlayHandler(handler: ((blocked: boolean) => void) | null) {
-    this._onStoryGameOverlay = handler;
-  }
-
-  private setStoryGameOverlayBlocked(blocked: boolean) {
-    if (this._onStoryGameOverlay) this._onStoryGameOverlay(blocked);
-  }
-
   private hideMountedStoryGame() {
     if (this._onSubviewClose) this._onSubviewClose();
   }
@@ -180,7 +175,6 @@ export class StoryPlayer extends Component {
     Tween.stopAllByTarget(this._subOpacity);
     this._subRoot.active = false;
     this._subOpacity.opacity = 255;
-    this.setStoryGameOverlayBlocked(false);
     this.hideMountedStoryGame();
   }
 
@@ -355,7 +349,6 @@ export class StoryPlayer extends Component {
     this._frameLayer.active = true;
     this.frontFrame().node.active = true;
     this._subRoot.active = true;
-    this.setStoryGameOverlayBlocked(true);
 
     const [bgSf, iconSf] = await Promise.all([
       ResCache.storyStepSprite(this._storyName, step.bg),
