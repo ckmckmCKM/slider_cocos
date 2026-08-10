@@ -75,6 +75,10 @@ export interface GEditorFrameNode extends GEditorNodeBase {
 export interface GEditorGameNode extends GEditorNodeBase {
   kind: 'game';
   levelId?: number | string;
+  /** 底图 Texture 节点 id（与 Frame.textureNodeId 同模式） */
+  gateFrameNodeId?: string | null;
+  /** 入口按钮 Texture 节点 id */
+  gateBtnNodeId?: string | null;
   gateFrame?: string | null;
   gateTip?: string;
   gateBtn?: string | null;
@@ -87,6 +91,10 @@ export interface GEditorGameNode extends GEditorNodeBase {
 export interface GEditorPopupNode extends GEditorNodeBase {
   kind: 'popup';
   mode: 'auto';
+  /** 黑底 Texture 节点 id */
+  bgNodeId?: string | null;
+  /** 道具 Texture 节点 id */
+  iconNodeId?: string | null;
   bgFile: string | null;
   iconFile: string | null;
 }
@@ -195,6 +203,8 @@ function toPopupExecNode(
   base: GEditorNodeBase,
   bg: string | null,
   icon: string | null,
+  bgNodeId: string | null = null,
+  iconNodeId: string | null = null,
 ): GEditorPopupNode {
   return {
     id: base.id,
@@ -204,6 +214,8 @@ function toPopupExecNode(
     nextExplicit: base.nextExplicit,
     kind: 'popup',
     mode: 'auto',
+    bgNodeId,
+    iconNodeId,
     bgFile: bg,
     iconFile: icon,
   };
@@ -234,21 +246,45 @@ export function resolveGateBtnLayout(node: {
 
 /** 修补导出 JSON：popup/subview / gameGate 字段缺失时仍可播放 */
 export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorStoryConfig {
+  const texById = new Map((cfg.textureNodes || []).map((t) => [t.id, t]));
+  const resolveTexFile = (
+    nodeId: string | null | undefined,
+    fallback: string | null | undefined,
+  ): string | null => {
+    if (nodeId) {
+      const file = texById.get(nodeId)?.file;
+      if (file) return file;
+    }
+    return fallback ? String(fallback) : null;
+  };
+
   const nodes = cfg.nodes.map((node) => {
     const rawKind = (node as { kind?: string }).kind;
     if (rawKind === 'subview') {
       const legacy = node as GEditorPopupNode & {
         subviewBg?: string | null;
         subviewIcon?: string | null;
+        bgNodeId?: string | null;
+        iconNodeId?: string | null;
       };
       return toPopupExecNode(
         legacy,
-        legacy.bgFile || legacy.subviewBg || null,
-        legacy.iconFile || legacy.subviewIcon || null,
+        resolveTexFile(legacy.bgNodeId, legacy.bgFile || legacy.subviewBg || null),
+        resolveTexFile(legacy.iconNodeId, legacy.iconFile || legacy.subviewIcon || null),
+        legacy.bgNodeId || null,
+        legacy.iconNodeId || null,
       );
     }
 
-    if (isGEditorPopupExecNode(node)) return node;
+    if (isGEditorPopupExecNode(node)) {
+      return {
+        ...node,
+        bgFile: resolveTexFile(node.bgNodeId, node.bgFile),
+        iconFile: resolveTexFile(node.iconNodeId, node.iconFile),
+        bgNodeId: node.bgNodeId || null,
+        iconNodeId: node.iconNodeId || null,
+      };
+    }
 
     if (isGEditorGameNode(node)) {
       const tipByName: Record<string, string> = {
@@ -259,8 +295,10 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
       const tip = node.gateTip || tipByName[node.name] || '';
       return {
         ...node,
-        gateFrame: node.gateFrame || '3.png',
-        gateBtn: node.gateBtn || 'gametubiao.png',
+        gateFrameNodeId: node.gateFrameNodeId || null,
+        gateBtnNodeId: node.gateBtnNodeId || null,
+        gateFrame: resolveTexFile(node.gateFrameNodeId, node.gateFrame) || '3.png',
+        gateBtn: resolveTexFile(node.gateBtnNodeId, node.gateBtn) || 'gametubiao.png',
         gateTip: tip,
         gateBtnMarginX: resolveGateBtnLayout(node).marginX,
         gateBtnMarginY: resolveGateBtnLayout(node).marginY,

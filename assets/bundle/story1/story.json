@@ -1,8 +1,8 @@
 {
   "format": "geditor-cocos",
   "version": 1,
-  "name": "story",
-  "exportedAt": "2026-08-10T06:49:56.998Z",
+  "name": "我的故事",
+  "exportedAt": "2026-08-10T07:49:21.298Z",
   "transition": {
     "type": "fade",
     "durationMs": 500
@@ -39,7 +39,6 @@
       "24.png",
       "25.png",
       "3.png",
-      "4-1zhitiao.png",
       "4-1zhitiaoheidi.png",
       "4-2daoju.png",
       "4-2daojuheidi.png",
@@ -49,15 +48,8 @@
       "7.png",
       "8.png",
       "9.png",
-      "G1.png",
       "biaoti.png",
-      "duihuakuang.png",
-      "g2.png",
-      "g3.png",
-      "game.png",
-      "gametubiao.png",
-      "mingzi.png",
-      "说明.png"
+      "gametubiao.png"
     ],
     "audios": []
   },
@@ -121,7 +113,7 @@
       "audioFile": null,
       "inEffect": "fade",
       "outEffect": "fade",
-      "holdSec": -1,
+      "holdSec": 1,
       "autoSkip": null,
       "popup": null,
       "dialogueChain": null
@@ -218,8 +210,10 @@
       "next": "f_sync_msmoqzpn_vac29f",
       "nextExplicit": false,
       "mode": "auto",
+      "bgNodeId": "f_msmx8plg_4tdnl9",
+      "iconNodeId": "f_msmxdvia_hu6wxe",
       "bgFile": "4-1zhitiaoheidi.png",
-      "iconFile": "4-1zhitiao.png"
+      "iconFile": "4-2daoju.png"
     },
     {
       "id": "f_sync_msmoqzpn_vac29f",
@@ -229,6 +223,8 @@
       "next": "f_sync_msmoqzpn_do5kxn",
       "nextExplicit": false,
       "levelId": 1,
+      "gateFrameNodeId": "f_msmxfzsk_mfxuuq",
+      "gateBtnNodeId": "f_msmxh0y3_09lp62",
       "gateFrame": "3.png",
       "gateTip": "需要找到钥匙才能进入",
       "gateBtn": "gametubiao.png",
@@ -244,6 +240,8 @@
       "next": "f_msha5ev8_nmjz1o",
       "nextExplicit": false,
       "mode": "auto",
+      "bgNodeId": "f_msmxhf1o_0m8yag",
+      "iconNodeId": "f_msmxi0j0_f2ph2i",
       "bgFile": "4-2daojuheidi.png",
       "iconFile": "4-2daoju.png"
     },
@@ -423,6 +421,8 @@
       "next": "f_sync_msmoqzpo_4xz7c5",
       "nextExplicit": false,
       "levelId": 1,
+      "gateFrameNodeId": null,
+      "gateBtnNodeId": null,
       "gateFrame": "3.png",
       "gateTip": "需要灵牌",
       "gateBtn": "gametubiao.png",
@@ -438,6 +438,8 @@
       "next": "f_msha5ev8_y8kiwn",
       "nextExplicit": false,
       "mode": "auto",
+      "bgNodeId": null,
+      "iconNodeId": null,
       "bgFile": "10-2daojuheidi.png",
       "iconFile": "10-2daoju.png"
     },
@@ -659,6 +661,8 @@
       "next": "f_msha5ev8_xjtuhc",
       "nextExplicit": false,
       "levelId": 1,
+      "gateFrameNodeId": null,
+      "gateBtnNodeId": null,
       "gateFrame": "3.png",
       "gateTip": "需要符纸",
       "gateBtn": "gametubiao.png",
@@ -695,6 +699,8 @@
       "next": "f_msha5ev8_u5zf6y",
       "nextExplicit": false,
       "mode": "auto",
+      "bgNodeId": null,
+      "iconNodeId": null,
       "bgFile": "18-1daojuheidi.png",
       "iconFile": "18-1daoju.png"
     },
@@ -1069,69 +1075,39 @@
       "target": "f_msha5ev8_aluxu8"
     },
     {
-      "id": "f_msha5ev8_phuxbo",
-      "file": "4-1zhitiao.png",
-      "target": "f_msha5ev8_phuxbo"
+      "id": "f_msmx8plg_4tdnl9",
+      "file": "4-1zhitiaoheidi.png",
+      "target": "f_sync_msmoqzpn_246cug"
     },
     {
-      "id": "f_msha5ev8_j3ht2a",
-      "file": "10-2daoju.png",
-      "target": "f_msha5ev8_j3ht2a"
+      "id": "f_msmxdvia_hu6wxe",
+      "file": "4-2daoju.png",
+      "target": "f_sync_msmoqzpn_246cug"
     },
     {
-      "id": "f_msha5ev8_whyfhb",
-      "file": "10-2daojuheidi.png",
-      "target": "f_msha5ev8_whyfhb"
+      "id": "f_msmxf8x6_spmtei",
+      "file": null,
+      "target": null
     },
     {
-      "id": "f_msha5ev8_gib0a5",
-      "file": "18-1daoju.png",
-      "target": "f_msha5ev8_gib0a5"
+      "id": "f_msmxfzsk_mfxuuq",
+      "file": "3.png",
+      "target": "f_sync_msmoqzpn_vac29f"
     },
     {
-      "id": "f_msha5ev8_pi38j6",
-      "file": "18-1daojuheidi.png",
-      "target": "f_msha5ev8_pi38j6"
-    },
-    {
-      "id": "f_msha5ev8_ox3mio",
-      "file": "duihuakuang.png",
-      "target": "f_msha5ev8_ox3mio"
-    },
-    {
-      "id": "f_msha5ev8_rawezs",
-      "file": "G1.png",
-      "target": "f_msha5ev8_rawezs"
-    },
-    {
-      "id": "f_msha5ev8_1g9gu6",
-      "file": "g2.png",
-      "target": "f_msha5ev8_1g9gu6"
-    },
-    {
-      "id": "f_msha5ev8_zewxbk",
-      "file": "g3.png",
-      "target": "f_msha5ev8_zewxbk"
-    },
-    {
-      "id": "f_msha5ev8_x2pntc",
-      "file": "game.png",
-      "target": "f_msha5ev8_x2pntc"
-    },
-    {
-      "id": "f_msha5ev8_j52ulr",
+      "id": "f_msmxh0y3_09lp62",
       "file": "gametubiao.png",
-      "target": "f_msha5ev8_j52ulr"
+      "target": "f_sync_msmoqzpn_vac29f"
     },
     {
-      "id": "f_msha5ev8_3svqi5",
-      "file": "mingzi.png",
-      "target": "f_msha5ev8_3svqi5"
+      "id": "f_msmxhf1o_0m8yag",
+      "file": "4-2daojuheidi.png",
+      "target": "f_sync_msmoqzpn_do5kxn"
     },
     {
-      "id": "f_msha5ev8_vrpsvj",
-      "file": "说明.png",
-      "target": "f_msha5ev8_vrpsvj"
+      "id": "f_msmxi0j0_f2ph2i",
+      "file": "4-2daoju.png",
+      "target": "f_sync_msmoqzpn_do5kxn"
     }
   ],
   "textNodes": [
@@ -1398,110 +1374,6 @@
       "textPos": "bottom",
       "audioFile": null,
       "target": "f_msha5ev8_aluxu8"
-    },
-    {
-      "id": "f_msha5ev8_phuxbo",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_phuxbo"
-    },
-    {
-      "id": "f_msha5ev8_j3ht2a",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_j3ht2a"
-    },
-    {
-      "id": "f_msha5ev8_whyfhb",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_whyfhb"
-    },
-    {
-      "id": "f_msha5ev8_gib0a5",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_gib0a5"
-    },
-    {
-      "id": "f_msha5ev8_pi38j6",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_pi38j6"
-    },
-    {
-      "id": "f_msha5ev8_ox3mio",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_ox3mio"
-    },
-    {
-      "id": "f_msha5ev8_rawezs",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_rawezs"
-    },
-    {
-      "id": "f_msha5ev8_1g9gu6",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_1g9gu6"
-    },
-    {
-      "id": "f_msha5ev8_zewxbk",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_zewxbk"
-    },
-    {
-      "id": "f_msha5ev8_x2pntc",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_x2pntc"
-    },
-    {
-      "id": "f_msha5ev8_j52ulr",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_j52ulr"
-    },
-    {
-      "id": "f_msha5ev8_3svqi5",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_3svqi5"
-    },
-    {
-      "id": "f_msha5ev8_vrpsvj",
-      "speaker": "",
-      "text": "",
-      "textPos": "bottom",
-      "audioFile": null,
-      "target": "f_msha5ev8_vrpsvj"
     }
   ]
 }
