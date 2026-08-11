@@ -1,5 +1,5 @@
 import {
-  AssetManager, ImageAsset, JsonAsset, Prefab, SpriteFrame, TextAsset, Texture2D, assetManager, resources,
+  AssetManager, AudioClip, ImageAsset, JsonAsset, Prefab, SpriteFrame, TextAsset, Texture2D, assetManager, resources,
 } from 'cc';
 import { LevelParser } from '../blocky/LevelParser';
 import { LevelConfig } from '../blocky/LevelTypes';
@@ -11,6 +11,7 @@ export class ResCache {
   private static _levels: LevelsMap | null = null;
   private static _brLevels = new Map<number, LevelConfig>();
   private static _sf: Record<string, SpriteFrame> = {};
+  private static _audioClips: Record<string, AudioClip> = {};
   private static _prefab: Record<string, Prefab> = {};
   private static _maxBrLevel = 0;
   private static _brCatalogReady = false;
@@ -208,6 +209,36 @@ export class ResCache {
     const sf = await this.loadSpriteFromBundle(bundle, path);
     if (sf) this._sf[key] = sf;
     return sf;
+  }
+
+  /** 剧情音频：audio/{fileName}（可带扩展名，会再尝试去扩展名路径） */
+  static async storyAudioClip(storyName: string, fileName: string): Promise<AudioClip | null> {
+    const raw = String(fileName || '').trim();
+    if (!raw) return null;
+    const base = raw.replace(/\.(mp3|wav|ogg|m4a|aac)$/i, '');
+    const path = `audio/${base}`;
+    const key = `${storyName}:${path}`;
+    if (this._audioClips[key]) return this._audioClips[key];
+    const bundle = await this.loadStoryBundle(storyName);
+    return new Promise((resolve) => {
+      bundle.load(path, AudioClip, (err, clip) => {
+        if (!err && clip) {
+          this._audioClips[key] = clip;
+          resolve(clip);
+          return;
+        }
+        const altPath = `audio/${raw}`;
+        bundle.load(altPath, AudioClip, (err2, clip2) => {
+          if (!err2 && clip2) {
+            this._audioClips[key] = clip2;
+            resolve(clip2);
+            return;
+          }
+          console.warn('[ResCache] story audio load failed', storyName, raw, err2 || err);
+          resolve(null);
+        });
+      });
+    });
   }
 
   /** com bundle 预制体，如 prefab/Dialogue */

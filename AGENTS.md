@@ -22,7 +22,9 @@
 | 剧情编辑器 | `GEditor/index.html`（蓝图 · 导出 geditor-cocos） |
 | 剧情类型 / 导出格式 | `assets/scripts/story/GEditorTypes.ts` |
 | 剧情播放 | `assets/scripts/story/GEditorStoryPlayer.ts` |
-| 剧情 bundle | `assets/bundle/story1/story.json` + `sprite/step/*` |
+| 剧情 bundle | `assets/bundle/story1/story.json` + `sprite/step/*` + `audio/*` |
+| 剧情内滑块 | `GameApp.enterGameFromStory` → `SliderGameView.setStoryWinHandler` → `completeGameNode` |
+| Game 通关道具 | Game 节点 Reward 引脚 → `winReward.textureFile`；动效写死在 `GEditorStoryPlayer`（§4.7.4） |
 
 ## 禁止误改
 
@@ -30,7 +32,7 @@
 - 不要将 board 按**行**解析；Unity 格式是**列优先**（见架构文档 §5.3）
 - 不要用「实心包围盒扩盘」修关卡尺寸；仅补**方块占用格** Ground
 - **GEditor 逻辑**写在 `assets/scripts/story/`，不要放进 `assets/bundle/` 目录
-- 改 GEditor 导出字段须同步：`GEditor/app.js` · `GEditorTypes.ts` · `GEditorStoryPlayer.ts`
+- 改 GEditor 导出字段须同步：`GEditor/app.js` · `GEditorTypes.ts` · `GEditorStoryPlayer.ts` ·（资源加载时）`ResCache.ts`
 
 ## 代码约定
 

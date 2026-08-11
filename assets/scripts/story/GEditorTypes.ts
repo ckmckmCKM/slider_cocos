@@ -88,6 +88,25 @@ export interface GEditorGameNode extends GEditorNodeBase {
   gateBtnMarginX?: number;
   gateBtnMarginY?: number;
   gateBtnSize?: number;
+  /** 通关后获得道具（Texture 经 Reward 引脚） */
+  winReward?: GEditorGameWinReward | null;
+}
+
+export interface GEditorGameWinReward {
+  textureNodeId?: string | null;
+  textureFile: string | null;
+}
+
+export function normalizeGameWinReward(
+  raw: GEditorGameWinReward | null | undefined,
+): GEditorGameWinReward | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const textureFile = raw.textureFile ? String(raw.textureFile).trim() : '';
+  if (!textureFile) return null;
+  return {
+    textureNodeId: raw.textureNodeId || null,
+    textureFile,
+  };
 }
 
 /** exec 链上的 Popup（自动弹出，原 Subview） */
@@ -122,6 +141,26 @@ export function resolvePopupInDurationSec(raw: number | null | undefined): numbe
   if (!Number.isFinite(n) || n < 0) return DEFAULT_POPUP_IN_SEC;
   if (n === 0) return 0;
   return Math.min(3, Math.max(0.05, Math.round(n * 100) / 100));
+}
+
+export function normalizeGEditorSoundMode(raw: string | null | undefined): 'bgm' | 'sfx' {
+  return String(raw ?? '').trim().toLowerCase() === 'sfx' ? 'sfx' : 'bgm';
+}
+
+export interface GEditorExecSoundSpec {
+  file: string | null;
+  mode: 'bgm' | 'sfx';
+}
+
+/** exec 节点上挂接的 Sound（目前导出在 frame 节点；game/popup 预留同名字段） */
+export function geditorNodeExecSound(node: GEditorStoryNode): GEditorExecSoundSpec | null {
+  const raw = node as GEditorFrameNode & GEditorGameNode & GEditorPopupNode & {
+    soundFile?: string | null;
+    soundMode?: string | null;
+  };
+  const file = raw.soundFile ? String(raw.soundFile).trim() : '';
+  if (!file) return null;
+  return { file, mode: normalizeGEditorSoundMode(raw.soundMode) };
 }
 
 export type GEditorStoryNode = GEditorFrameNode | GEditorGameNode | GEditorPopupNode;
@@ -280,6 +319,7 @@ export function resolveGateBtnLayout(node: {
 /** 修补导出 JSON：popup/subview / gameGate 字段缺失时仍可播放 */
 export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorStoryConfig {
   const texById = new Map((cfg.textureNodes || []).map((t) => [t.id, t]));
+  const sndById = new Map((cfg.soundNodes || []).map((s) => [s.id, s]));
   const resolveTexFile = (
     nodeId: string | null | undefined,
     fallback: string | null | undefined,
@@ -328,6 +368,12 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
         game_1_28: '需要符纸',
       };
       const tip = node.gateTip || tipByName[node.name] || '';
+      const raw = node as GEditorGameNode & {
+        winRewardTexId?: string | null;
+      };
+      const rewardTex = raw.winReward?.textureNodeId
+        ? texById.get(raw.winReward.textureNodeId)?.file
+        : null;
       return {
         ...node,
         gateFrameNodeId: node.gateFrameNodeId || null,
@@ -338,6 +384,10 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
         gateBtnMarginX: resolveGateBtnLayout(node).marginX,
         gateBtnMarginY: resolveGateBtnLayout(node).marginY,
         gateBtnSize: resolveGateBtnLayout(node).size,
+        winReward: normalizeGameWinReward({
+          textureNodeId: raw.winReward?.textureNodeId || null,
+          textureFile: raw.winReward?.textureFile || rewardTex || null,
+        }),
       };
     }
 
@@ -349,18 +399,24 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
       popupBg?: string | null;
       popupIcon?: string | null;
     };
-    const bg = frame.popupBg || frame.subviewBg || null;
-    const icon = frame.popupIcon || frame.subviewIcon || null;
+    const snd = frame.soundNodeId ? sndById.get(frame.soundNodeId) : null;
+    const withSound: GEditorFrameNode = {
+      ...frame,
+      soundFile: frame.soundFile || snd?.audioFile || null,
+      soundMode: frame.soundMode || snd?.mode || null,
+    };
+    const bg = withSound.popupBg || withSound.subviewBg || null;
+    const icon = withSound.popupIcon || withSound.subviewIcon || null;
     if (bg || icon) {
-      return toPopupExecNode(frame, bg, icon);
+      return toPopupExecNode(withSound, bg, icon);
     }
 
-    const inferred = inferPopupExecFromLegacyFrameName(frame.name);
+    const inferred = inferPopupExecFromLegacyFrameName(withSound.name);
     if (inferred) {
-      return toPopupExecNode(frame, inferred.bg, inferred.icon);
+      return toPopupExecNode(withSound, inferred.bg, inferred.icon);
     }
 
-    return node;
+    return withSound;
   });
 
   return { ...cfg, nodes };

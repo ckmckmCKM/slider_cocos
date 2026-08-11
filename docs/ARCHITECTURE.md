@@ -136,6 +136,8 @@ flowchart TB
 4. 剧情进局：`ensureSliderGame` → 挂到 **Story**（`frameLayer` 与 `subview` 之间）
 5. `GameApp.update` 每帧调用 `SliderGameView.tick(dt)`（已创建时）
 
+**剧情内滑块关卡（`kind: game`）：** `GameApp.enterGameFromStory` 将 `SliderGame` 挂到 Story 的 `frameLayer` 与 `subview` 之间；点 gate 按钮进局，胜利后 `SliderGameView` 走 `storyWinHandler`（不显示局内胜利 UI）→ `GEditorStoryPlayer.completeGameNode()` → 若配置了 `winReward` 则展示道具（动效写死）→ `advanceSequence`。剧情模式下 SliderGame 在关闭 exec Popup / 道具层后才 `hide`。
+
 ### 3.2 BoardController 生命周期
 
 ```
@@ -169,7 +171,7 @@ startLevel
 - **职责：** 实例化并切换 Lobby / Menu / Game / Story，协调导航与进度存档
 - **预制体：** `home/prefab/Lobby`、`home/prefab/Menu`；`game/prefab/SliderGame` **首次进局时**才实例化
 - **Game 挂载：** 大厅/选关 → Canvas；剧情 `gameGate` → `Story` 子节点，顺序 `bg` → `frameLayer` → **Game** → `subview` → …
-- **剧情联动：** 剧情关卡通关后不立即 `hide` Game；`subview` 叠在 Game 之上，关闭 `subview` 时一并 `hide` Story 下的 Game（节点保留）
+- **剧情联动：** 剧情关卡通关后不立即 `hide` Game；`subview` / `geditorWinReward` 叠在 Game 之上，关闭叠层后一并 `hide` Story 下的 Game（节点保留）
 - **存档：** `localStorage` key = `block_reveal_max`（`Constants.PROGRESS_KEY`）
 - **不碰棋盘逻辑**，棋盘由 `SliderGameView` 内 `BoardController` 驱动
 
@@ -327,13 +329,23 @@ ResCache.loadComPrefab()     // com bundle 预制体
 | 工具栏节点 | 导出 `kind` | 说明 |
 |------------|-------------|------|
 | Frame | `frame` | 主链帧：底图、台词、入/出场动效、`holdSec`、Frame 内 Popup 热点等 |
-| Game | `game` | 关卡入口：`gateFrame` + `gateBtn` + `levelId` |
+| Game | `game` | 关卡入口：`gateFrame` + `gateBtn` + `levelId`；**通关后** Reward 引脚连 Texture 配置 `winReward` 道具图 |
 | Popup | `popup` | **exec 链**自动叠层（黑底 heidi + 居中 icon，运行时对应 `geditorSubview`） |
 | Texture | `textureNodes[]` | 纹理资源节点，经引脚连到 Frame / Popup / Game |
 | Text | `textNodes[]` | 台词资源节点 |
-| Sound | `soundNodes[]` | BGM / SFX 资源节点（**编辑器预览**：切 exec 时 BGM 播放/切换、SFX 单次播放；点 Stop 停止全部音频；Cocos 运行时**未接**） |
+| Sound | `soundNodes[]` | BGM / SFX 资源节点（编辑器预览与 **Cocos 运行时**均已接：切 exec 时 BGM 播放/切换、SFX 单次播放；停止剧情时全部停止） |
 
 **exec 链：** 黄色 `exec-in` / `exec-out` 串联 Frame / Game / Popup 播放顺序；蓝色线为 Texture / Text / Sound 数据引脚。
+
+**Game 节点引脚（`kind: game`）：**
+
+| 引脚 | 连线 | 导出字段 |
+|------|------|----------|
+| `gate-frame-in` | Texture → 入口底图 | `gateFrame` / `gateFrameNodeId` |
+| `gate-btn-in` | Texture → 入口按钮 | `gateBtn` / `gateBtnNodeId` |
+| `win-reward-in` | Texture → 通关道具图（可选） | `winReward.textureFile` / `winReward.textureNodeId` |
+
+关卡 id、gate 提示文案、按钮边距等在 Game 节点属性面板编辑（非引脚）。
 
 #### 4.7.3 Popup 出现动效（exec 链 Popup 节点）
 
@@ -348,7 +360,46 @@ ResCache.loadComPrefab()     // com bundle 预制体
 
 > **区分：** Frame 上挂的 **热点 Popup**（`frame.popup` + trigger）与 exec 链 **Popup 节点**是两套机制；出现动效目前仅作用于后者。
 
-#### 4.7.4 导出格式 `geditor-cocos`
+#### 4.7.4 Game 通关后道具（`kind: game` 节点）
+
+**编辑器：** Game 节点 **Reward** 引脚拖 Texture；无连线则通关后不展示道具层。
+
+| 编辑器 | 导出（`nodes[]` 中 `kind: game`） |
+|--------|-------------------------------------|
+| `winRewardTexId` + 所连 Texture | `winReward.textureNodeId` |
+| Texture 文件名 | `winReward.textureFile`（记入 `assets.textures`，落盘 `sprite/step/`） |
+
+导出示例（片段）：
+
+```json
+{
+  "kind": "game",
+  "levelId": 6,
+  "gateFrame": "3.png",
+  "gateBtn": "gametubiao.png",
+  "winReward": {
+    "textureNodeId": "tex_abc",
+    "textureFile": "10-2daoju.png"
+  }
+}
+```
+
+**Cocos 写死（不在 GEditor 配置）：** `completeGameNode()` → `runGameWinPresentation()` → `presentGameWinReward()`；出现动效固定 `fade-zoom`、**0.35s**（`GEditorTypes.DEFAULT_POPUP_IN_EFFECT` / `DEFAULT_POPUP_IN_SEC`），**点击关闭**后 `advanceSequence()`。未配置 `winReward` 时跳过道具层，直接 `advanceSequence()`。
+
+> **与 exec Popup 的关系：** Game 节点 `winReward` 在**当前 game 通关后立即**播放；exec 链下一节点若仍是 `popup`，会**再**播 Popup 叠层。可单独或串联。
+
+#### 4.7.5 Sound 节点（Frame 引脚）
+
+| 编辑器 | 导出（挂在 `frame` 节点） | 说明 |
+|--------|---------------------------|------|
+| Sound 节点 + `sound-in` 连线 | `soundNodeId` / `soundFile` / `soundMode` | `bgm` 循环 · `sfx` 单次 |
+| — | `soundNodes[]` 侧车表 | 音频资源索引 |
+
+- **编辑器预览：** 切 exec 时 `syncExecPreviewSound`；BGM 播放/切换，SFX 单次；Stop 预览 `stopAllPreviewAudio`（含台词语音）。
+- **Cocos 运行时：** `presentSequenceIndex` → `syncExecSound()`；`hide()` / `finish()` 时 `stopAllStoryAudio()`。
+- **资源路径：** `assets/bundle/{story}/audio/{fileName}`；加载 `ResCache.storyAudioClip()`。
+
+#### 4.7.6 导出格式 `geditor-cocos`
 
 根对象字段（与 `GEditorTypes.GEditorStoryConfig` 一致）：
 
@@ -359,26 +410,34 @@ ResCache.loadComPrefab()     // com bundle 预制体
 | `sequence` | exec 主链节点 id 顺序 |
 | `nodes` | `frame` / `game` / `popup` 节点数组 |
 | `textureNodes` / `textNodes` / `soundNodes` | 资源侧车表 |
-| `assets.textures` / `assets.audios` | 去重文件名列表 |
+| `assets.textures` / `assets.audios` | 去重文件名列表（贴图 / 音频） |
 
 **落盘约定（story bundle，如 `story1`）：**
 
 ```
 assets/bundle/story1/
-├── story.json              # 重命名后的导出 JSON（或保持工程内文件名，ResCache 按 bundle 名加载）
-└── sprite/step/{name}      # 导出 textures 列表中的 step 图（无扩展名加载）
+├── story.json
+├── sprite/step/{name}        # 帧图、道具图（textures）
+└── audio/{name}              # BGM / SFX（audios）
 ```
 
-`ResCache.loadGEditorStoryConfig(name)` → `normalizeGEditorStoryConfig()` 修补旧字段（如 `subview` → `popup`、缺省 gate 图）。
+`ResCache.loadGEditorStoryConfig(name)` → `normalizeGEditorStoryConfig()` 修补旧字段（如 `subview` → `popup`、缺省 gate 图、`soundNodeId` 补全 `soundFile`）。
 
-#### 4.7.5 运行时播放（`GEditorStoryPlayer`）
+#### 4.7.7 运行时播放（`GEditorStoryPlayer`）
 
 - `GameApp` 在 Story 根节点挂 **`GEditorStoryPlayer`**（`StoryPlayer` 已废弃）。
-- 节点层：`frameLayer`（双缓冲 crossfade）· `geditorPopup`（Frame 热点纸条）· `geditorSubview`（exec Popup 黑底+icon）· `gameGate`。
-- 剧情内 SliderGame 挂在 `frameLayer` 与 `subview` 之间（见 §3.1）。
-- 接口：`GEditorStoryPlayback`（`setGameRequestHandler` / `setSubviewCloseHandler`）。
+- **节点层（从底到顶）：** `frameLayer`（双缓冲）· 剧情内 **SliderGame** · `geditorSubview`（exec Popup）· `geditorPopup`（Frame 热点纸条）· `gameGate` · `geditorWinReward`（通关道具）。
+- 剧情内 SliderGame 由 `GameApp.ensureSliderGameOnStory` 挂载，z 序在 `frameLayer` 与 `subview` 之间（见 §3.1）。
+- 接口：`GEditorStoryPlayback`（`setGameRequestHandler` / `setSubviewCloseHandler` / `getGameSiblingIndex`）。
 
-**能力边界（待补）：** Sound 节点播放、Frame `autoSkip` blur/mosaic 视觉效果、非 fade 帧间转场、`audioFile` 语音。
+**ResCache 剧情资源：**
+
+| 方法 | 路径 |
+|------|------|
+| `storyStepSprite(story, name)` | `sprite/step/{name}` |
+| `storyAudioClip(story, file)` | `audio/{file}` |
+
+**能力边界（待补）：** Frame `autoSkip` blur/mosaic 视觉效果、非 fade 帧间转场、`audioFile` 台词语音。
 
 ---
 
@@ -522,7 +581,7 @@ Local: gridToLocal(x,y) → ((x-cxm)*C, (y-cym)*C)
 | 大厅 UI | — | `sprite/zy_bj` 等 | **home** |
 | 大厅/选关预制体 | — | `prefab/Lobby` / `prefab/Menu` | **home** |
 | 公共弹窗 | — | `prefab/Dialogue` 等 | **com** |
-| 剧情 | — | `story.json`、`sprite/step/*` | **story1** |
+| 剧情 | — | `story.json`、`sprite/step/*`、`audio/*` | **story1** |
 | 剧情编辑 | — | `GEditor/`（不打包进 bundle） | 仓库根目录 |
 
 `ResCache.loadSprite` 会依次尝试 `{path}/spriteFrame`、`{path}`、`ImageAsset`。
@@ -603,9 +662,10 @@ node tools/gen-slider-game-prefab.mjs
 | 入口 | 浏览器打开 `GEditor/index.html` |
 | 工程格式 | `geditor-project`（含帧图 data URL / blob 引用） |
 | 导出格式 | `geditor-cocos` JSON → 拷入 `assets/bundle/{storyName}/story.json` |
-| 资源 | 导出 JSON 中的 `assets.textures` / `audios` 文件名 → 手动放入 bundle 对应目录 |
+| 资源 | 导出 `assets.textures` / `audios` 文件名 → 手动放入 bundle 对应目录（见 §4.7.6） |
 | 类型定义 | `assets/scripts/story/GEditorTypes.ts`（与 `GEditor/app.js` `buildCocosExport` 对齐） |
 | 运行时 | `GEditorStoryPlayer` + `ResCache.loadGEditorStoryConfig` |
+| Game 通关道具 | Reward 引脚 → `winReward`；出现动效在 `GEditorStoryPlayer` 写死（§4.7.4） |
 
 **注意：** 多个不同图源若导出为**同名文件**，Cocos 扁平 `sprite/step/` 下会冲突，导出完成时会弹窗提示。TypeScript 逻辑放在 `assets/scripts/story/`，**不要**放进 bundle 目录。
 
@@ -623,9 +683,11 @@ node tools/gen-slider-game-prefab.mjs
 8. **UI 以预制体为主** — 已有 Lobby/Menu/SliderGame 为历史脚手架；**新建**弹窗/全屏界面须复制 `com/prefab/PopupTemplate`。改交互去对应 `*View.ts`；通用绘制用 `UIFactory`
 9. **拖动范围不能按初始行列缓存** — 拼块可能先沿一轴绕开障碍，再沿另一轴继续移动；碰撞必须基于当前 `cells` 逐步判定
 10. **图片遮罩不要拆成逐格矩形** — 活跃实现是 `picture` 节点上的单个 `GRAPHICS_STENCIL`，轮廓必须复用 `makePiece` 的 rounded loops
-11. **GEditor 与 Cocos 分工** — 编辑器在 `GEditor/`；播放逻辑在 `assets/scripts/story/`。改导出字段须同步 `GEditorTypes.ts`、`app.js` `buildCocosExport`、`GEditorStoryPlayer`
+11. **GEditor 与 Cocos 分工** — 编辑器在 `GEditor/`；播放逻辑在 `assets/scripts/story/`。改导出字段须同步 `GEditorTypes.ts`、`app.js` `buildCocosExport`、`GEditorStoryPlayer`、（资源加载时）`ResCache`
 12. **exec Popup ≠ Frame 热点 Popup** — exec 链 `kind: popup` 走 `geditorSubview`；Frame 的 `popup` + `trigger` 走 `geditorPopup`，二者动效字段不共用
 13. **旧工程 `subview` 节点** — 加载时迁移为 `popup`；Cocos 侧 `normalizeGEditorStoryConfig` 同样处理
+14. **Game `winReward` ≠ exec Popup** — 前者挂在 game 节点、通关后立即播；后者是 exec 链上下一节点，可串联勿混淆
+15. **Game 通关道具动效不可导出** — 仅 `winReward.textureFile` 来自 GEditor；`fade-zoom` / 0.35s 写死在 `GEditorStoryPlayer.presentGameWinReward`，改行为只改 Cocos 代码
 
 ---
 
@@ -655,7 +717,7 @@ node tools/gen-slider-game-prefab.mjs
 1. **编辑器 UI / 导出字段：** `GEditor/app.js`（`buildCocosExport`、`normalizeArchiveFrame`、蓝图 `createBpNode`）
 2. **类型与 normalize：** `assets/scripts/story/GEditorTypes.ts`
 3. **运行时行为：** `assets/scripts/story/GEditorStoryPlayer.ts`
-4. **加载：** `ResCache.loadGEditorStoryConfig` / `storyStepSprite`
+4. **加载：** `ResCache.loadGEditorStoryConfig` / `storyStepSprite` / `storyAudioClip`
 5. 新增节点类型或引脚：编辑器 save/load、导出、Types、Player 四处贯通
 
 ### 修改 UI
@@ -714,6 +776,8 @@ UIFactory
 | 2026-08-10 | **GEditor** 剧情蓝图编辑器（`GEditor/`）：geditor-project 工程、geditor-cocos 导出、Sound 节点（编辑器侧） |
 | 2026-08-10 | 剧情播放切换为 **`GEditorStoryPlayer`**；`StoryPlayer`（旧 steps）废弃 |
 | 2026-08-10 | exec 链 **Popup 出现动效**：`inEffect`（fade / zoom / fade-zoom / none）+ `inDurationSec` |
+| 2026-08-11 | **Sound** 编辑器预览与 Cocos 运行时：切 exec 播 BGM/SFX，`hide`/`finish` 停全部音频 |
+| 2026-08-11 | **Game 通关道具**：GEditor 仅 Reward 引脚配置贴图；Cocos 写死 `fade-zoom` 0.35s 出现动效 |
 
 ---
 
