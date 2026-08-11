@@ -5,7 +5,7 @@
  * 待补：autoSkip blur/mosaic 视觉效果、语音 audioFile、非 fade 转场。
  */
 import {
-  _decorator, AudioSource, BlockInputEvents, Component, EventTouch, Node, SpriteFrame, Tween, UIOpacity, UITransform, tween, Vec3,
+  _decorator, AudioClip, AudioSource, BlockInputEvents, Component, EventTouch, Node, SpriteFrame, Tween, UIOpacity, UITransform, tween, Vec3,
 } from 'cc';
 import { DialogueView } from '../dialogue/DialogueView';
 import { DESIGN_H, DESIGN_W } from '../utils/Constants';
@@ -20,7 +20,7 @@ import {
   DEFAULT_POPUP_IN_EFFECT, DEFAULT_POPUP_IN_SEC, GEditorPopupInEffect,
   geditorNodeExecSounds, geditorNodeHasCaption, geditorPopupExecBg, geditorPopupExecIcon, geditorTextureStepName,
   inferPopupExecFromLegacyFrameName, isGEditorFrameNode, isGEditorGameNode, isGEditorPopupExecNode,
-  resolveGateBtnLayout, resolvePopupInDurationSec, resolvePopupInEffect,
+  normalizeSfxStopOnFrameChange, resolveGateBtnLayout, resolvePopupInDurationSec, resolvePopupInEffect,
 } from './GEditorTypes';
 
 const { ccclass } = _decorator;
@@ -90,6 +90,8 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   private _storyBgm!: AudioSource;
   private _storySfx!: AudioSource;
   private _currentBgmKey = '';
+  private _sfxPool: AudioSource[] = [];
+  private _activeSfxTracks: { source: AudioSource; stopOnFrameChange: boolean }[] = [];
 
   private _onGameRequest: ((level: number, onWin: () => void) => void) | null = null;
   private _onSubviewClose: (() => void) | null = null;
@@ -494,7 +496,48 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   }
 
   private stopStorySfx() {
+    for (const track of this._activeSfxTracks) {
+      if (track.source.playing) track.source.stop();
+    }
+    this._activeSfxTracks = [];
     if (this._storySfx?.playing) this._storySfx.stop();
+  }
+
+  private stopStoppableStorySfx() {
+    const keep: { source: AudioSource; stopOnFrameChange: boolean }[] = [];
+    for (const track of this._activeSfxTracks) {
+      if (track.stopOnFrameChange) {
+        if (track.source.playing) track.source.stop();
+      } else {
+        keep.push(track);
+      }
+    }
+    this._activeSfxTracks = keep;
+  }
+
+  private acquireSfxSource(): AudioSource {
+    for (const source of this._sfxPool) {
+      if (!source.playing) return source;
+    }
+    const node = makeNode(`storySfx_${this._sfxPool.length}`, this.node, 0, 0);
+    const source = node.addComponent(AudioSource);
+    source.loop = false;
+    source.volume = STORY_SFX_VOLUME;
+    this._sfxPool.push(source);
+    return source;
+  }
+
+  private playStorySfx(clip: AudioClip, stopOnFrameChange: boolean) {
+    const source = this.acquireSfxSource();
+    source.clip = clip;
+    source.loop = false;
+    source.volume = STORY_SFX_VOLUME;
+    const track = { source, stopOnFrameChange };
+    this._activeSfxTracks.push(track);
+    source.play();
+    source.node.once(AudioSource.EventType.ENDED, () => {
+      this._activeSfxTracks = this._activeSfxTracks.filter((t) => t !== track);
+    });
   }
 
   private stopAllStoryAudio() {
@@ -505,6 +548,8 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   private async syncExecSound(node: GEditorStoryNode) {
     const specs = geditorNodeExecSounds(node);
     if (!specs.length) return;
+
+    this.stopStoppableStorySfx();
 
     let bgmPlayed = false;
     for (const spec of specs) {
@@ -528,7 +573,8 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
         continue;
       }
 
-      this._storySfx.playOneShot(clip, STORY_SFX_VOLUME);
+      const stopOnFrameChange = normalizeSfxStopOnFrameChange(spec.stopOnFrameChange, 'sfx');
+      this.playStorySfx(clip, stopOnFrameChange);
     }
   }
 

@@ -82,6 +82,8 @@ export interface GEditorExecSoundEntry {
   soundNodeId?: string | null;
   soundFile: string;
   mode: 'bgm' | 'sfx';
+  /** 仅 SFX：切到下一 exec 帧时是否停止（默认 true） */
+  stopOnFrameChange?: boolean | null;
 }
 
 export interface GEditorGameNode extends GEditorNodeBase {
@@ -156,6 +158,15 @@ export function normalizeGEditorSoundMode(raw: string | null | undefined): 'bgm'
   return String(raw ?? '').trim().toLowerCase() === 'sfx' ? 'sfx' : 'bgm';
 }
 
+/** SFX 切帧是否停止；缺省 false（切帧不主动停，播完自然结束） */
+export function normalizeSfxStopOnFrameChange(
+  raw: boolean | null | undefined,
+  mode: 'bgm' | 'sfx',
+): boolean {
+  if (mode !== 'sfx') return false;
+  return raw === true;
+}
+
 export interface GEditorExecSoundSpec {
   file: string | null;
   mode: 'bgm' | 'sfx';
@@ -167,11 +178,16 @@ export function normalizeExecSoundEntry(
   if (!raw || typeof raw !== 'object') return null;
   const file = raw.soundFile ? String(raw.soundFile).trim() : '';
   if (!file) return null;
-  return {
+  const mode = normalizeGEditorSoundMode(raw.mode);
+  const entry: GEditorExecSoundEntry = {
     soundNodeId: raw.soundNodeId || null,
     soundFile: file,
-    mode: normalizeGEditorSoundMode(raw.mode),
+    mode,
   };
+  if (mode === 'sfx') {
+    entry.stopOnFrameChange = normalizeSfxStopOnFrameChange(raw.stopOnFrameChange, mode);
+  }
+  return entry;
 }
 
 /** 归一化 frame 音频列表：最多保留 1 条 bgm，保留全部 sfx */

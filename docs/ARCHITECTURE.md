@@ -392,14 +392,15 @@ ResCache.loadComPrefab()     // com bundle 预制体
 
 | 编辑器 | 导出（挂在 `frame` 节点） | 说明 |
 |--------|---------------------------|------|
-| 多个 Sound 节点 + `sound-in` 连线 | `sounds[]` | `{ soundNodeId, soundFile, mode }` 数组 |
+| 多个 Sound 节点 + `sound-in` 连线 | `sounds[]` | `{ soundNodeId, soundFile, mode, stopOnFrameChange? }` 数组 |
+| Sound 节点「切帧停止」（**仅 SFX**，BGM 无此开关） | `stopOnFrameChange` | 仅 `mode: sfx` 时导出；默认 `false`；`true` 时切到下一 exec 帧停止该 SFX |
 | — | `soundNodes[]` 侧车表 | 音频资源索引 |
 | 遗留单字段 | `soundNodeId` / `soundFile` / `soundMode` | 仅第一条（兼容旧 JSON） |
 
-**规则：** 同一 Frame **最多 1 条 BGM**，**可多条 SFX**（切到该帧时全部播放；SFX 用 `playOneShot` 可重叠）。编辑器连线时若 Frame 已有 BGM 再连第二条 BGM 会提示拒绝。
+**规则：** 同一 Frame **最多 1 条 BGM**，**可多条 SFX**（切到该帧时全部播放；SFX 可重叠）。编辑器连线时若 Frame 已有 BGM 再连第二条 BGM 会提示拒绝。
 
-- **编辑器预览：** 切 exec 时 `syncExecPreviewSound` → `playFrameSounds`；BGM 循环切换，SFX 并发；Stop 预览 `stopAllPreviewAudio`。
-- **Cocos 运行时：** `presentSequenceIndex` → `syncExecSound()`（`geditorNodeExecSounds`）；`hide()` / `finish()` 时 `stopAllStoryAudio()`。
+- **编辑器预览：** 切 exec 时 `syncExecPreviewSound` → `playFrameSounds`；BGM 循环切换，SFX 并发；`stopOnFrameChange=true` 的 SFX 在切帧时停止，`false` 的继续播放；Stop 预览 `stopAllPreviewAudio`。
+- **Cocos 运行时：** `presentSequenceIndex` → `syncExecSound()`（`geditorNodeExecSounds`）；切帧前停止 `stopOnFrameChange=true` 的 SFX；`hide()` / `finish()` 时 `stopAllStoryAudio()`。
 - **资源路径：** `assets/bundle/{story}/audio/{fileName}`；加载 `ResCache.storyAudioClip()`。
 
 #### 4.7.6 导出格式 `geditor-cocos`
@@ -783,6 +784,7 @@ UIFactory
 | 2026-08-11 | **Sound** 编辑器预览与 Cocos 运行时：切 exec 播 BGM/SFX，`hide`/`finish` 停全部音频 |
 | 2026-08-11 | **Game 通关道具**：GEditor 仅 Reward 引脚配置贴图；Cocos 写死 `fade-zoom` 0.35s 出现动效 |
 | 2026-08-11 | **Frame 多音频**：`sounds[]` 支持 1 BGM + 多 SFX；编辑器可多连 Sound 节点，Cocos `syncExecSound` 同步 |
+| 2026-08-11 | **SFX 切帧停止**：Sound 节点「切帧停止」开关 → `stopOnFrameChange`；编辑器预览与 Cocos 运行时对齐 |
 
 ---
 

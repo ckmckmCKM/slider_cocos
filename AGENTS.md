@@ -26,6 +26,7 @@
 | 剧情内滑块 | `GameApp.enterGameFromStory` → `SliderGameView.setStoryWinHandler` → `completeGameNode` |
 | Game 通关道具 | Game 节点 Reward 引脚 → `winReward.textureFile`；动效写死在 `GEditorStoryPlayer`（§4.7.4） |
 | Frame 多音频 | 多个 Sound 连同一 Frame → `sounds[]`（1 BGM + 多 SFX，§4.7.5） |
+| SFX 切帧停止 | Sound 节点「切帧停止」（仅 SFX 显示）→ `stopOnFrameChange`；BGM 不受此控制 |
 
 ## 禁止误改
 
