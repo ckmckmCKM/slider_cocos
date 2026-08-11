@@ -392,11 +392,14 @@ ResCache.loadComPrefab()     // com bundle 预制体
 
 | 编辑器 | 导出（挂在 `frame` 节点） | 说明 |
 |--------|---------------------------|------|
-| Sound 节点 + `sound-in` 连线 | `soundNodeId` / `soundFile` / `soundMode` | `bgm` 循环 · `sfx` 单次 |
+| 多个 Sound 节点 + `sound-in` 连线 | `sounds[]` | `{ soundNodeId, soundFile, mode }` 数组 |
 | — | `soundNodes[]` 侧车表 | 音频资源索引 |
+| 遗留单字段 | `soundNodeId` / `soundFile` / `soundMode` | 仅第一条（兼容旧 JSON） |
 
-- **编辑器预览：** 切 exec 时 `syncExecPreviewSound`；BGM 播放/切换，SFX 单次；Stop 预览 `stopAllPreviewAudio`（含台词语音）。
-- **Cocos 运行时：** `presentSequenceIndex` → `syncExecSound()`；`hide()` / `finish()` 时 `stopAllStoryAudio()`。
+**规则：** 同一 Frame **最多 1 条 BGM**，**可多条 SFX**（切到该帧时全部播放；SFX 用 `playOneShot` 可重叠）。编辑器连线时若 Frame 已有 BGM 再连第二条 BGM 会提示拒绝。
+
+- **编辑器预览：** 切 exec 时 `syncExecPreviewSound` → `playFrameSounds`；BGM 循环切换，SFX 并发；Stop 预览 `stopAllPreviewAudio`。
+- **Cocos 运行时：** `presentSequenceIndex` → `syncExecSound()`（`geditorNodeExecSounds`）；`hide()` / `finish()` 时 `stopAllStoryAudio()`。
 - **资源路径：** `assets/bundle/{story}/audio/{fileName}`；加载 `ResCache.storyAudioClip()`。
 
 #### 4.7.6 导出格式 `geditor-cocos`
@@ -688,6 +691,7 @@ node tools/gen-slider-game-prefab.mjs
 13. **旧工程 `subview` 节点** — 加载时迁移为 `popup`；Cocos 侧 `normalizeGEditorStoryConfig` 同样处理
 14. **Game `winReward` ≠ exec Popup** — 前者挂在 game 节点、通关后立即播；后者是 exec 链上下一节点，可串联勿混淆
 15. **Game 通关道具动效不可导出** — 仅 `winReward.textureFile` 来自 GEditor；`fade-zoom` / 0.35s 写死在 `GEditorStoryPlayer.presentGameWinReward`，改行为只改 Cocos 代码
+16. **Frame 音频** — 每页最多 1 BGM、可多条 SFX；导出 `sounds[]`，勿再只写遗留 `soundFile` 单字段
 
 ---
 
@@ -778,6 +782,7 @@ UIFactory
 | 2026-08-10 | exec 链 **Popup 出现动效**：`inEffect`（fade / zoom / fade-zoom / none）+ `inDurationSec` |
 | 2026-08-11 | **Sound** 编辑器预览与 Cocos 运行时：切 exec 播 BGM/SFX，`hide`/`finish` 停全部音频 |
 | 2026-08-11 | **Game 通关道具**：GEditor 仅 Reward 引脚配置贴图；Cocos 写死 `fade-zoom` 0.35s 出现动效 |
+| 2026-08-11 | **Frame 多音频**：`sounds[]` 支持 1 BGM + 多 SFX；编辑器可多连 Sound 节点，Cocos `syncExecSound` 同步 |
 
 ---
 

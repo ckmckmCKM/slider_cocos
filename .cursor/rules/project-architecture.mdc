@@ -26,7 +26,7 @@ alwaysApply: true
 5. 胜利 = 所有 `PictureData` 拼合揭示，不是同色消除。
 6. `clear()` 中 `wallIce` 已在 `decor` 里，勿重复 destroy。
 7. 玩法资源在 **game Asset Bundle**（`assets/bundle/game`）；**TypeScript 逻辑必须留在 `assets/scripts/blocky`**，勿放进 bundle 目录（预览时无法被主工程 import）
-8. **GEditor**：编辑器在 `GEditor/`；剧情 TS 在 `assets/scripts/story/`。改导出字段须同步 `app.js` · `GEditorTypes.ts` · `GEditorStoryPlayer.ts` · `ResCache.ts`。Popup 动效：`popupInEffect`/`popupInSec` → `inEffect`/`inDurationSec`；Game 通关道具：Reward 引脚 → `winReward.textureFile`（出现动效仅在 `GEditorStoryPlayer` 写死，勿加导出字段）
+8. **GEditor**：编辑器在 `GEditor/`；剧情 TS 在 `assets/scripts/story/`。改导出字段须同步 `app.js` · `GEditorTypes.ts` · `GEditorStoryPlayer.ts` · `ResCache.ts`。Popup 动效：`popupInEffect`/`popupInSec` → `inEffect`/`inDurationSec`；Game 通关道具：Reward 引脚 → `winReward.textureFile`（动效 Cocos 写死）；Frame 音频：`sounds[]`（1 BGM + 多 SFX）
 
 ## 代码风格
 

@@ -18,7 +18,7 @@ import { GEditorStoryPlayback } from './GEditorStoryPlayback';
 import {
   GEditorFrameNode, GEditorGameNode, GEditorPopupNode, GEditorPopupTrigger, GEditorStoryConfig, GEditorStoryNode,
   DEFAULT_POPUP_IN_EFFECT, DEFAULT_POPUP_IN_SEC, GEditorPopupInEffect,
-  geditorNodeHasCaption, geditorNodeExecSound, geditorPopupExecBg, geditorPopupExecIcon, geditorTextureStepName,
+  geditorNodeExecSounds, geditorNodeHasCaption, geditorPopupExecBg, geditorPopupExecIcon, geditorTextureStepName,
   inferPopupExecFromLegacyFrameName, isGEditorFrameNode, isGEditorGameNode, isGEditorPopupExecNode,
   resolveGateBtnLayout, resolvePopupInDurationSec, resolvePopupInEffect,
 } from './GEditorTypes';
@@ -503,24 +503,33 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   }
 
   private async syncExecSound(node: GEditorStoryNode) {
-    const spec = geditorNodeExecSound(node);
-    if (!spec) return;
-    const key = geditorTextureStepName(spec.file);
-    if (!key) return;
-    const clip = await ResCache.storyAudioClip(this._storyName, spec.file);
-    if (!clip) return;
+    const specs = geditorNodeExecSounds(node);
+    if (!specs.length) return;
 
-    if (spec.mode === 'bgm') {
-      if (this._currentBgmKey === key && this._storyBgm.playing) return;
-      this.stopStoryBgm();
-      this._storyBgm.clip = clip;
-      this._storyBgm.loop = true;
-      this._storyBgm.play();
-      this._currentBgmKey = key;
-      return;
+    let bgmPlayed = false;
+    for (const spec of specs) {
+      const key = geditorTextureStepName(spec.soundFile);
+      if (!key) continue;
+      const clip = await ResCache.storyAudioClip(this._storyName, spec.soundFile);
+      if (!clip) continue;
+
+      if (spec.mode === 'bgm') {
+        if (bgmPlayed) continue;
+        if (this._currentBgmKey === key && this._storyBgm.playing) {
+          bgmPlayed = true;
+          continue;
+        }
+        this.stopStoryBgm();
+        this._storyBgm.clip = clip;
+        this._storyBgm.loop = true;
+        this._storyBgm.play();
+        this._currentBgmKey = key;
+        bgmPlayed = true;
+        continue;
+      }
+
+      this._storySfx.playOneShot(clip, STORY_SFX_VOLUME);
     }
-
-    this._storySfx.playOneShot(clip, STORY_SFX_VOLUME);
   }
 
   private async presentGameNode(node: GEditorGameNode) {

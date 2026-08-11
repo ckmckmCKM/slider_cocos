@@ -70,9 +70,18 @@ export interface GEditorFrameNode extends GEditorNodeBase {
   autoSkip: GEditorAutoSkip | null;
   popup: GEditorPopup | null;
   dialogueChain?: GEditorDialogueLine[] | null;
+  /** @deprecated 单音频遗留字段，请用 sounds */
   soundNodeId?: string | null;
   soundMode?: 'bgm' | 'sfx' | string | null;
   soundFile?: string | null;
+  /** 本帧音频列表：最多 1 条 bgm，可多条 sfx */
+  sounds?: GEditorExecSoundEntry[] | null;
+}
+
+export interface GEditorExecSoundEntry {
+  soundNodeId?: string | null;
+  soundFile: string;
+  mode: 'bgm' | 'sfx';
 }
 
 export interface GEditorGameNode extends GEditorNodeBase {
@@ -152,15 +161,74 @@ export interface GEditorExecSoundSpec {
   mode: 'bgm' | 'sfx';
 }
 
-/** exec 节点上挂接的 Sound（目前导出在 frame 节点；game/popup 预留同名字段） */
-export function geditorNodeExecSound(node: GEditorStoryNode): GEditorExecSoundSpec | null {
-  const raw = node as GEditorFrameNode & GEditorGameNode & GEditorPopupNode & {
-    soundFile?: string | null;
-    soundMode?: string | null;
-  };
+export function normalizeExecSoundEntry(
+  raw: GEditorExecSoundEntry | null | undefined,
+): GEditorExecSoundEntry | null {
+  if (!raw || typeof raw !== 'object') return null;
   const file = raw.soundFile ? String(raw.soundFile).trim() : '';
   if (!file) return null;
-  return { file, mode: normalizeGEditorSoundMode(raw.soundMode) };
+  return {
+    soundNodeId: raw.soundNodeId || null,
+    soundFile: file,
+    mode: normalizeGEditorSoundMode(raw.mode),
+  };
+}
+
+/** 归一化 frame 音频列表：最多保留 1 条 bgm，保留全部 sfx */
+export function normalizeFrameSounds(
+  raw: GEditorExecSoundEntry[] | null | undefined,
+): GEditorExecSoundEntry[] {
+  if (!Array.isArray(raw)) return [];
+  const out: GEditorExecSoundEntry[] = [];
+  let hasBgm = false;
+  for (const item of raw) {
+    const entry = normalizeExecSoundEntry(item);
+    if (!entry) continue;
+    if (entry.mode === 'bgm') {
+      if (hasBgm) continue;
+      hasBgm = true;
+    }
+    out.push(entry);
+  }
+  return out;
+}
+
+function legacyFrameSoundEntries(frame: GEditorFrameNode): GEditorExecSoundEntry[] {
+  const file = frame.soundFile ? String(frame.soundFile).trim() : '';
+  if (!file) return [];
+  return [{
+    soundNodeId: frame.soundNodeId || null,
+    soundFile: file,
+    mode: normalizeGEditorSoundMode(frame.soundMode),
+  }];
+}
+
+/** exec 节点上挂接的 Sound（frame；game/popup 预留同名字段） */
+export function geditorNodeExecSounds(node: GEditorStoryNode): GEditorExecSoundEntry[] {
+  const raw = node as GEditorFrameNode & GEditorGameNode & GEditorPopupNode & {
+    sounds?: GEditorExecSoundEntry[] | null;
+    soundFile?: string | null;
+    soundMode?: string | null;
+    soundNodeId?: string | null;
+  };
+  const fromList = normalizeFrameSounds(raw.sounds);
+  if (fromList.length) return fromList;
+  if (isGEditorFrameNode(node)) return legacyFrameSoundEntries(node);
+  const file = raw.soundFile ? String(raw.soundFile).trim() : '';
+  if (!file) return [];
+  return [{
+    soundNodeId: raw.soundNodeId || null,
+    soundFile: file,
+    mode: normalizeGEditorSoundMode(raw.soundMode),
+  }];
+}
+
+/** @deprecated 使用 geditorNodeExecSounds */
+export function geditorNodeExecSound(node: GEditorStoryNode): GEditorExecSoundSpec | null {
+  const list = geditorNodeExecSounds(node);
+  if (!list.length) return null;
+  const first = list[0];
+  return { file: first.soundFile, mode: first.mode };
 }
 
 export type GEditorStoryNode = GEditorFrameNode | GEditorGameNode | GEditorPopupNode;
@@ -400,10 +468,24 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
       popupIcon?: string | null;
     };
     const snd = frame.soundNodeId ? sndById.get(frame.soundNodeId) : null;
+    const sounds = normalizeFrameSounds(
+      frame.sounds?.length
+        ? frame.sounds
+        : (frame.soundFile || snd?.audioFile
+          ? [{
+            soundNodeId: frame.soundNodeId || snd?.id || null,
+            soundFile: frame.soundFile || snd?.audioFile || '',
+            mode: frame.soundMode || snd?.mode || 'bgm',
+          }]
+          : []),
+    );
+    const primary = sounds[0] || null;
     const withSound: GEditorFrameNode = {
       ...frame,
-      soundFile: frame.soundFile || snd?.audioFile || null,
-      soundMode: frame.soundMode || snd?.mode || null,
+      sounds,
+      soundFile: primary?.soundFile || null,
+      soundMode: primary?.mode || null,
+      soundNodeId: primary?.soundNodeId || null,
     };
     const bg = withSound.popupBg || withSound.subviewBg || null;
     const icon = withSound.popupIcon || withSound.subviewIcon || null;
