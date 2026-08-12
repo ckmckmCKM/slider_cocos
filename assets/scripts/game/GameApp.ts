@@ -83,6 +83,7 @@ export class GameApp extends Component {
     this.gmEntry = this.uiRoot.getComponent(GmEntry) || this.uiRoot.addComponent(GmEntry);
     await this.gmEntry.setup({
       onOpenMenu: () => void this.showMenu(),
+      onSelectStory: (storyName) => void this.enterStory(storyName),
     });
   }
 

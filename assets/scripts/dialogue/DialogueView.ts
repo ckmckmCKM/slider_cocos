@@ -8,6 +8,9 @@ const { ccclass, property } = _decorator;
 
 const ADVANCE_AFTER_SKIP_SEC = 0.2;
 const DIALOGUE_FADE_SEC = 0.28;
+const DEFAULT_CHARS_PER_SECOND = 18;
+const MIN_CHARS_PER_SECOND = 1;
+const MAX_CHARS_PER_SECOND = 120;
 
 @ccclass('DialogueView')
 export class DialogueView extends PopupBase {
@@ -27,7 +30,7 @@ export class DialogueView extends PopupBase {
   private _charIndex = 0;
   private _typing = false;
   private _typeAcc = 0;
-  private _charsPerSecond = 18;
+  private _charsPerSecond = DEFAULT_CHARS_PER_SECOND;
   private _onTypingComplete: (() => void) | null = null;
   private _pendingAdvance = false;
   private _fadingIn = false;
@@ -76,7 +79,8 @@ export class DialogueView extends PopupBase {
   }
 
   /** 显示对话：说话人 + 全文（逐字打出）；onClose 在玩家点击关闭时触发 */
-  show(speaker: string, text: string, onClose?: () => void) {
+  show(speaker: string, text: string, onClose?: () => void, charsPerSecond?: number) {
+    this.applyTypingSpeed(charsPerSecond);
     this.prepareContent(speaker, text);
     this.open(onClose);
     this.startTyping();
@@ -85,7 +89,8 @@ export class DialogueView extends PopupBase {
   /**
    * 先渐现对话框，再开始逐字打出（用于一级界面渐现后自动衔接对话）
    */
-  async showAfterFade(speaker: string, text: string, onClose?: () => void) {
+  async showAfterFade(speaker: string, text: string, onClose?: () => void, charsPerSecond?: number) {
+    this.applyTypingSpeed(charsPerSecond);
     this.prepareContent(speaker, text);
     this.open(onClose);
     this._fadingIn = true;
@@ -118,6 +123,15 @@ export class DialogueView extends PopupBase {
     this._typeAcc = 0;
     this._onTypingComplete = null;
     if (this.contentLabel) this.contentLabel.string = '';
+  }
+
+  private applyTypingSpeed(charsPerSecond?: number | null) {
+    const n = Number(charsPerSecond);
+    if (!Number.isFinite(n) || n <= 0) {
+      this._charsPerSecond = DEFAULT_CHARS_PER_SECOND;
+      return;
+    }
+    this._charsPerSecond = Math.min(MAX_CHARS_PER_SECOND, Math.max(MIN_CHARS_PER_SECOND, Math.round(n)));
   }
 
   private startTyping() {

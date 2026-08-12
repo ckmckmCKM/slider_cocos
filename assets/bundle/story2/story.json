@@ -1,0 +1,556 @@
+{
+  "format": "geditor-cocos",
+  "version": 1,
+  "name": "story",
+  "exportedAt": "2026-08-11T11:04:58.271Z",
+  "transition": {
+    "type": "fade",
+    "durationMs": 1200
+  },
+  "assets": {
+    "textures": [
+      "BeiJing_1_01.png",
+      "BeiJing_1_02.png",
+      "BeiJing_1_03.png",
+      "BeiJing_1_04.png",
+      "BeiJing_1_05.png",
+      "BeiJing_1_06.png",
+      "DaoJu_YaoShi.png",
+      "DaoJu_ZhiTiao.png",
+      "Ui_BiaoTi.png",
+      "com_HeiDi.png",
+      "com_gametubiao.png"
+    ],
+    "audios": [
+      "BeiJing.mp3",
+      "Text_hunli.mp3",
+      "Text_zishijiehun.mp3",
+      "com_GuiJiao.mp3",
+      "com_duanfeng.mp3",
+      "com_kaimen02.mp3",
+      "com_kaisuo.mp3",
+      "com_qiaomen.mp3",
+      "com_yinfengchuiguo.mp3",
+      "com_zhi.mp3"
+    ]
+  },
+  "entry": "f_mso339bz_kpkr1a",
+  "sequence": [
+    "f_mso339bz_kpkr1a",
+    "f_mso33m1q_824aur",
+    "f_msoa82r7_lvbxyo",
+    "f_mso31ub7_vu3rll",
+    "f_msoadobs_2ly095",
+    "f_msoafo8a_p6noku",
+    "f_msoaqa8i_nl53n3",
+    "f_msoc399e_dsaf58",
+    "f_msobm3nh_yo9cza",
+    "f_msobp81c_3k23w9",
+    "f_msobx2ku_g5z0en"
+  ],
+  "nodes": [
+    {
+      "id": "f_mso339bz_kpkr1a",
+      "kind": "frame",
+      "name": "com_HeiDi.png",
+      "order": 0,
+      "next": "f_mso33m1q_824aur",
+      "nextExplicit": true,
+      "textureNodeId": "f_mso339bz_kpkr1a",
+      "textureFile": "com_HeiDi.png",
+      "textNodeId": null,
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "sounds": [
+        {
+          "soundNodeId": "f_mso378fd_67talc",
+          "soundFile": "BeiJing.mp3",
+          "mode": "bgm"
+        },
+        {
+          "soundNodeId": "f_mso38o8f_5b99fg",
+          "soundFile": "com_GuiJiao.mp3",
+          "mode": "sfx",
+          "stopOnFrameChange": false
+        }
+      ],
+      "soundNodeId": "f_mso378fd_67talc",
+      "soundMode": "bgm",
+      "soundFile": "BeiJing.mp3",
+      "inEffect": "none",
+      "outEffect": "none",
+      "holdSec": 0.1,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    },
+    {
+      "id": "f_mso33m1q_824aur",
+      "kind": "frame",
+      "name": "frame_3",
+      "order": 1,
+      "next": "f_msoa82r7_lvbxyo",
+      "nextExplicit": true,
+      "textureNodeId": "f_mso35i6p_chkcfg",
+      "textureFile": "Ui_BiaoTi.png",
+      "textNodeId": null,
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "sounds": null,
+      "soundNodeId": null,
+      "soundMode": null,
+      "soundFile": null,
+      "inEffect": "fade",
+      "outEffect": "fade",
+      "holdSec": 3,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    },
+    {
+      "id": "f_msoa82r7_lvbxyo",
+      "kind": "frame",
+      "name": "frame_8",
+      "order": 2,
+      "next": "f_mso31ub7_vu3rll",
+      "nextExplicit": true,
+      "textureNodeId": "f_mso31ub7_vu3rll",
+      "textureFile": "BeiJing_1_01.png",
+      "textNodeId": "f_msoa4x6t_80cdwx",
+      "speaker": "我",
+      "text": "一场婚礼，就拍四张照片，这报酬足够我的照相馆继续经营下去......",
+      "textPos": "bottom",
+      "audioFile": "Text_hunli.mp3",
+      "sounds": [
+        {
+          "soundNodeId": "f_msoeqyny_poav29",
+          "soundFile": "com_qiaomen.mp3",
+          "mode": "sfx",
+          "stopOnFrameChange": false
+        }
+      ],
+      "soundNodeId": "f_msoeqyny_poav29",
+      "soundMode": "sfx",
+      "soundFile": "com_qiaomen.mp3",
+      "inEffect": "fade",
+      "outEffect": "none",
+      "holdSec": -1,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    },
+    {
+      "id": "f_mso31ub7_vu3rll",
+      "kind": "frame",
+      "name": "BeiJing_1_01.png",
+      "order": 3,
+      "next": "f_msoadobs_2ly095",
+      "nextExplicit": true,
+      "textureNodeId": "f_msoaa6oi_a5iwt9",
+      "textureFile": "BeiJing_1_01.png",
+      "textNodeId": null,
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "sounds": [
+        {
+          "soundNodeId": "f_msoannq3_sxyp0o",
+          "soundFile": "com_qiaomen.mp3",
+          "mode": "sfx",
+          "stopOnFrameChange": false
+        }
+      ],
+      "soundNodeId": "f_msoannq3_sxyp0o",
+      "soundMode": "sfx",
+      "soundFile": "com_qiaomen.mp3",
+      "inEffect": "none",
+      "outEffect": "fade",
+      "holdSec": 2,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    },
+    {
+      "id": "f_msoadobs_2ly095",
+      "kind": "frame",
+      "name": "frame_11",
+      "order": 4,
+      "next": "f_msoafo8a_p6noku",
+      "nextExplicit": true,
+      "textureNodeId": "f_msoadsul_tyb7cd",
+      "textureFile": "BeiJing_1_02.png",
+      "textNodeId": "f_msoahwfq_9sqgsk",
+      "speaker": "我",
+      "text": "不过这沈家子时结婚，倒也是头一次见。",
+      "textPos": "bottom",
+      "audioFile": "Text_zishijiehun.mp3",
+      "sounds": [
+        {
+          "soundNodeId": "f_msoacjvq_rmob1v",
+          "soundFile": "com_yinfengchuiguo.mp3",
+          "mode": "sfx",
+          "stopOnFrameChange": false
+        }
+      ],
+      "soundNodeId": "f_msoacjvq_rmob1v",
+      "soundMode": "sfx",
+      "soundFile": "com_yinfengchuiguo.mp3",
+      "inEffect": "fade",
+      "outEffect": "none",
+      "holdSec": -1,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    },
+    {
+      "id": "f_msoafo8a_p6noku",
+      "kind": "frame",
+      "name": "frame_13",
+      "order": 5,
+      "next": "f_msoaqa8i_nl53n3",
+      "nextExplicit": true,
+      "textureNodeId": "f_msoafq7f_pc0ga3",
+      "textureFile": "BeiJing_1_03.png",
+      "textNodeId": null,
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "sounds": [
+        {
+          "soundNodeId": "f_msoasmza_9n1gm8",
+          "soundFile": "com_zhi.mp3",
+          "mode": "sfx",
+          "stopOnFrameChange": false
+        },
+        {
+          "soundNodeId": "f_msoaw6eb_ok4bk3",
+          "soundFile": "com_duanfeng.mp3",
+          "mode": "sfx",
+          "stopOnFrameChange": false
+        }
+      ],
+      "soundNodeId": "f_msoasmza_9n1gm8",
+      "soundMode": "sfx",
+      "soundFile": "com_zhi.mp3",
+      "inEffect": "none",
+      "outEffect": "fade",
+      "holdSec": 0.5,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    },
+    {
+      "id": "f_msoaqa8i_nl53n3",
+      "kind": "frame",
+      "name": "frame_17",
+      "order": 6,
+      "next": "f_msoc399e_dsaf58",
+      "nextExplicit": true,
+      "textureNodeId": "f_msoaqcqu_sxgh9c",
+      "textureFile": "BeiJing_1_04.png",
+      "textNodeId": null,
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "sounds": null,
+      "soundNodeId": null,
+      "soundMode": null,
+      "soundFile": null,
+      "inEffect": "fade",
+      "outEffect": "fade",
+      "holdSec": -1,
+      "autoSkip": null,
+      "popup": {
+        "nodeId": "f_msoas2ow_l3d0yf",
+        "textureFile": "DaoJu_ZhiTiao.png",
+        "bgNodeId": null,
+        "iconNodeId": null,
+        "bgFile": null,
+        "iconFile": "DaoJu_ZhiTiao.png",
+        "inEffect": "fade-zoom",
+        "inDurationSec": 0.35,
+        "mode": "trigger",
+        "speaker": "",
+        "text": "",
+        "textPos": "bottom",
+        "audioFile": null,
+        "trigger": {
+          "x": 0.5,
+          "y": 0.5,
+          "radius": 10
+        }
+      },
+      "dialogueChain": null
+    },
+    {
+      "id": "f_msoc399e_dsaf58",
+      "kind": "frame",
+      "name": "frame_31",
+      "order": 7,
+      "next": "f_msobm3nh_yo9cza",
+      "nextExplicit": true,
+      "textureNodeId": "f_msoc3dcj_wmk6we",
+      "textureFile": "BeiJing_1_03.png",
+      "textNodeId": null,
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "sounds": null,
+      "soundNodeId": null,
+      "soundMode": null,
+      "soundFile": null,
+      "inEffect": "fade",
+      "outEffect": "fade",
+      "holdSec": 0.1,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    },
+    {
+      "id": "f_msobm3nh_yo9cza",
+      "kind": "game",
+      "name": "game_24",
+      "order": 8,
+      "next": "f_msobp81c_3k23w9",
+      "nextExplicit": true,
+      "gateFrameNodeId": "f_msobomnl_rj7q9k",
+      "gateBtnNodeId": "f_msojojhw_ugi3n7",
+      "gateFrame": "BeiJing_1_03.png",
+      "gateTip": "需要找到钥匙才能进入",
+      "gateBtn": "com_gametubiao.png",
+      "gateBtnMarginX": 120,
+      "gateBtnMarginY": 400,
+      "gateBtnSize": 200,
+      "winReward": {
+        "textureNodeId": "f_msogp5so_lam1qh",
+        "textureFile": "DaoJu_YaoShi.png"
+      }
+    },
+    {
+      "id": "f_msobp81c_3k23w9",
+      "kind": "frame",
+      "name": "frame_27",
+      "order": 9,
+      "next": "f_msobx2ku_g5z0en",
+      "nextExplicit": true,
+      "textureNodeId": "f_msobpa9s_xj05r5",
+      "textureFile": "BeiJing_1_05.png",
+      "textNodeId": null,
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "sounds": [
+        {
+          "soundNodeId": "f_msobwdq3_7xnb3m",
+          "soundFile": "com_kaisuo.mp3",
+          "mode": "sfx",
+          "stopOnFrameChange": false
+        }
+      ],
+      "soundNodeId": "f_msobwdq3_7xnb3m",
+      "soundMode": "sfx",
+      "soundFile": "com_kaisuo.mp3",
+      "inEffect": "fade",
+      "outEffect": "fade",
+      "holdSec": 3,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    },
+    {
+      "id": "f_msobx2ku_g5z0en",
+      "kind": "frame",
+      "name": "frame_28",
+      "order": 10,
+      "next": null,
+      "nextExplicit": false,
+      "textureNodeId": "f_msobx6m3_errb8t",
+      "textureFile": "BeiJing_1_06.png",
+      "textNodeId": null,
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "sounds": [
+        {
+          "soundNodeId": "f_msoc22oi_dmajnj",
+          "soundFile": "com_kaimen02.mp3",
+          "mode": "sfx",
+          "stopOnFrameChange": false
+        }
+      ],
+      "soundNodeId": "f_msoc22oi_dmajnj",
+      "soundMode": "sfx",
+      "soundFile": "com_kaimen02.mp3",
+      "inEffect": "fade",
+      "outEffect": "fade",
+      "holdSec": -1,
+      "autoSkip": null,
+      "popup": null,
+      "dialogueChain": null
+    }
+  ],
+  "textureNodes": [
+    {
+      "id": "f_mso31ub7_vu3rll",
+      "file": "BeiJing_1_01.png",
+      "target": "f_msoa82r7_lvbxyo"
+    },
+    {
+      "id": "f_mso339bz_kpkr1a",
+      "file": "com_HeiDi.png",
+      "target": "f_mso339bz_kpkr1a"
+    },
+    {
+      "id": "f_mso35i6p_chkcfg",
+      "file": "Ui_BiaoTi.png",
+      "target": "f_mso33m1q_824aur"
+    },
+    {
+      "id": "f_msoaa6oi_a5iwt9",
+      "file": "BeiJing_1_01.png",
+      "target": "f_mso31ub7_vu3rll"
+    },
+    {
+      "id": "f_msoadsul_tyb7cd",
+      "file": "BeiJing_1_02.png",
+      "target": "f_msoadobs_2ly095"
+    },
+    {
+      "id": "f_msoafq7f_pc0ga3",
+      "file": "BeiJing_1_03.png",
+      "target": "f_msoafo8a_p6noku"
+    },
+    {
+      "id": "f_msoas2ow_l3d0yf",
+      "file": "DaoJu_ZhiTiao.png",
+      "target": "f_msoas2ow_l3d0yf"
+    },
+    {
+      "id": "f_msoaqcqu_sxgh9c",
+      "file": "BeiJing_1_04.png",
+      "target": "f_msoaqa8i_nl53n3"
+    },
+    {
+      "id": "f_msobomnl_rj7q9k",
+      "file": "BeiJing_1_03.png",
+      "target": "f_msobm3nh_yo9cza"
+    },
+    {
+      "id": "f_msobpa9s_xj05r5",
+      "file": "BeiJing_1_05.png",
+      "target": "f_msobp81c_3k23w9"
+    },
+    {
+      "id": "f_msobx6m3_errb8t",
+      "file": "BeiJing_1_06.png",
+      "target": "f_msobx2ku_g5z0en"
+    },
+    {
+      "id": "f_msoc3dcj_wmk6we",
+      "file": "BeiJing_1_03.png",
+      "target": "f_msoc399e_dsaf58"
+    },
+    {
+      "id": "f_msogp5so_lam1qh",
+      "file": "DaoJu_YaoShi.png",
+      "target": "f_msobm3nh_yo9cza"
+    },
+    {
+      "id": "f_msojojhw_ugi3n7",
+      "file": "com_gametubiao.png",
+      "target": "f_msobm3nh_yo9cza"
+    }
+  ],
+  "textNodes": [
+    {
+      "id": "f_msoa4x6t_80cdwx",
+      "speaker": "我",
+      "text": "一场婚礼，就拍四张照片，这报酬足够我的照相馆继续经营下去......",
+      "textPos": "bottom",
+      "audioFile": "Text_hunli.mp3",
+      "target": "f_msoa82r7_lvbxyo"
+    },
+    {
+      "id": "f_msoahwfq_9sqgsk",
+      "speaker": "我",
+      "text": "不过这沈家子时结婚，倒也是头一次见。",
+      "textPos": "bottom",
+      "audioFile": "Text_zishijiehun.mp3",
+      "target": "f_msoadobs_2ly095"
+    },
+    {
+      "id": "f_msoas2ow_l3d0yf",
+      "speaker": "",
+      "text": "",
+      "textPos": "bottom",
+      "audioFile": null,
+      "target": "f_msoas2ow_l3d0yf"
+    }
+  ],
+  "soundNodes": [
+    {
+      "id": "f_mso378fd_67talc",
+      "mode": "bgm",
+      "audioFile": "BeiJing.mp3",
+      "target": "f_mso339bz_kpkr1a"
+    },
+    {
+      "id": "f_mso38o8f_5b99fg",
+      "mode": "sfx",
+      "audioFile": "com_GuiJiao.mp3",
+      "target": "f_mso339bz_kpkr1a"
+    },
+    {
+      "id": "f_msoacjvq_rmob1v",
+      "mode": "sfx",
+      "audioFile": "com_yinfengchuiguo.mp3",
+      "target": "f_msoadobs_2ly095"
+    },
+    {
+      "id": "f_msoannq3_sxyp0o",
+      "mode": "sfx",
+      "audioFile": "com_qiaomen.mp3",
+      "target": "f_mso31ub7_vu3rll"
+    },
+    {
+      "id": "f_msoasmza_9n1gm8",
+      "mode": "sfx",
+      "audioFile": "com_zhi.mp3",
+      "target": "f_msoafo8a_p6noku"
+    },
+    {
+      "id": "f_msoaw6eb_ok4bk3",
+      "mode": "sfx",
+      "audioFile": "com_duanfeng.mp3",
+      "target": "f_msoafo8a_p6noku"
+    },
+    {
+      "id": "f_msobwdq3_7xnb3m",
+      "mode": "sfx",
+      "audioFile": "com_kaisuo.mp3",
+      "target": "f_msobp81c_3k23w9"
+    },
+    {
+      "id": "f_msoc22oi_dmajnj",
+      "mode": "sfx",
+      "audioFile": "com_kaimen02.mp3",
+      "target": "f_msobx2ku_g5z0en"
+    },
+    {
+      "id": "f_msoeqyny_poav29",
+      "mode": "sfx",
+      "audioFile": "com_qiaomen.mp3",
+      "target": "f_msoa82r7_lvbxyo"
+    }
+  ]
+}

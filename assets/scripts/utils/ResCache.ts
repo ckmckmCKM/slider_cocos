@@ -200,18 +200,31 @@ export class ResCache {
     return doc as StoryConfig;
   }
 
-  /** 剧情 step 图：sprite/step/{stepName} */
+  /** GEditor 导出到 com bundle 的公共资源（com_ 前缀） */
+  private static isComPoolStem(stem: string): boolean {
+    return String(stem || '').trim().startsWith('com_');
+  }
+
+  /** 剧情 step 图：sprite/step/{stepName}；com_ 资源可回退到 com bundle */
   static async storyStepSprite(storyName: string, stepName: string): Promise<SpriteFrame | null> {
     const path = `sprite/step/${stepName}`;
     const key = `${storyName}:${path}`;
     if (this._sf[key]) return this._sf[key];
     const bundle = await this.loadStoryBundle(storyName);
-    const sf = await this.loadSpriteFromBundle(bundle, path);
+    let sf = await this.loadSpriteFromBundle(bundle, path);
+    if (!sf && this.isComPoolStem(stepName)) {
+      const comPath = `sprite/${stepName}`;
+      const comKey = `com:${comPath}`;
+      if (this._sf[comKey]) return this._sf[comKey];
+      const comBundle = await this.loadComBundle();
+      sf = await this.loadSpriteFromBundle(comBundle, comPath);
+      if (sf) this._sf[comKey] = sf;
+    }
     if (sf) this._sf[key] = sf;
     return sf;
   }
 
-  /** 剧情音频：audio/{fileName}（可带扩展名，会再尝试去扩展名路径） */
+  /** 剧情音频：audio/{fileName}（可带扩展名，会再尝试去扩展名路径）；com_ 资源可回退到 com bundle */
   static async storyAudioClip(storyName: string, fileName: string): Promise<AudioClip | null> {
     const raw = String(fileName || '').trim();
     if (!raw) return null;
@@ -220,21 +233,38 @@ export class ResCache {
     const key = `${storyName}:${path}`;
     if (this._audioClips[key]) return this._audioClips[key];
     const bundle = await this.loadStoryBundle(storyName);
+    let clip = await this.loadStoryAudioFromBundle(bundle, key, raw, base);
+    if (!clip && this.isComPoolStem(base)) {
+      const comKey = `com:${path}`;
+      if (this._audioClips[comKey]) return this._audioClips[comKey];
+      const comBundle = await this.loadComBundle();
+      clip = await this.loadStoryAudioFromBundle(comBundle, comKey, raw, base);
+    }
+    if (!clip) console.warn('[ResCache] story audio load failed', storyName, raw);
+    return clip;
+  }
+
+  private static loadStoryAudioFromBundle(
+    bundle: AssetManager.Bundle,
+    cacheKey: string,
+    raw: string,
+    base: string,
+  ): Promise<AudioClip | null> {
+    const path = `audio/${base}`;
     return new Promise((resolve) => {
       bundle.load(path, AudioClip, (err, clip) => {
         if (!err && clip) {
-          this._audioClips[key] = clip;
+          this._audioClips[cacheKey] = clip;
           resolve(clip);
           return;
         }
         const altPath = `audio/${raw}`;
         bundle.load(altPath, AudioClip, (err2, clip2) => {
           if (!err2 && clip2) {
-            this._audioClips[key] = clip2;
+            this._audioClips[cacheKey] = clip2;
             resolve(clip2);
             return;
           }
-          console.warn('[ResCache] story audio load failed', storyName, raw, err2 || err);
           resolve(null);
         });
       });

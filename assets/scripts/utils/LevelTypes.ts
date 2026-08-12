@@ -7,6 +7,7 @@ export interface BlockInstance {
   position: Vec3Like;
   size?: Vec2Like;
   offset?: Vec2Like;
+  modelOffset?: Vec2Like;
   groupId?: number;
   directName?: string;
   directPos?: Vec3Like;

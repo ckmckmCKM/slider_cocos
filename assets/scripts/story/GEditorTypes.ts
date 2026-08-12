@@ -4,7 +4,44 @@ export type GEditorTransitionType = 'fade' | string;
 
 export type GEditorTextPos = 'bottom' | 'top' | string;
 
-export type GEditorEffectType = 'fade' | string;
+export type GEditorEffectType = 'fade' | 'slide-left' | 'slide-up' | 'zoom' | 'none' | string;
+
+export type GEditorFrameTransitionEffect = 'fade' | 'slide-left' | 'slide-up' | 'zoom' | 'none';
+
+export const DEFAULT_FRAME_EFFECT_SEC = 0.5;
+export const FRAME_EFFECT_SEC_MAX = 5;
+
+export function resolveFrameTransitionEffect(
+  raw: string | null | undefined,
+  fallback: GEditorFrameTransitionEffect = 'fade',
+): GEditorFrameTransitionEffect {
+  const s = String(raw ?? '').trim();
+  if (s === 'fade' || s === 'slide-left' || s === 'slide-up' || s === 'zoom' || s === 'none') {
+    return s;
+  }
+  return fallback;
+}
+
+export function resolveFrameInDurationSec(
+  effectRaw: string | null | undefined,
+  durationRaw: number | null | undefined,
+  fallbackSec = DEFAULT_FRAME_EFFECT_SEC,
+): number {
+  const effect = resolveFrameTransitionEffect(effectRaw, 'fade');
+  if (effect === 'none') return 0;
+  const n = Number(durationRaw);
+  if (!Number.isFinite(n) || n < 0) return fallbackSec;
+  if (n === 0) return 0;
+  return Math.min(FRAME_EFFECT_SEC_MAX, Math.round(n * 100) / 100);
+}
+
+export function resolveFrameOutDurationSec(
+  effectRaw: string | null | undefined,
+  durationRaw: number | null | undefined,
+  fallbackSec = DEFAULT_FRAME_EFFECT_SEC,
+): number {
+  return resolveFrameInDurationSec(effectRaw, durationRaw, fallbackSec);
+}
 
 export type GEditorAutoSkipEffect = 'blur' | 'mosaic';
 
@@ -24,17 +61,34 @@ export interface GEditorPopupTrigger {
   radius: number;
 }
 
+export type GEditorPopupMode = 'auto' | 'trigger';
+
 export interface GEditorPopup {
   nodeId: string;
   textureFile: string | null;
   speaker: string;
   text: string;
   textPos: GEditorTextPos;
+  /** 台词逐字显示速度（字/秒） */
+  textSpeed?: number | null;
   audioFile: string | null;
   trigger: GEditorPopupTrigger | null;
-  /** 可选黑底（与 exec popup 一致） */
+  /** auto=帧呈现后自动叠层；trigger=点击热点打开 */
+  mode?: GEditorPopupMode | string | null;
+  /** trigger 模式下点空白提示文案；缺省「点击高亮区域继续」 */
+  missTip?: string | null;
+  /** Popup 打开时播放（Sound 引脚）；与 audioFile（台词语音）独立 */
+  sounds?: GEditorExecSoundEntry[] | null;
+  /** @deprecated 单音频遗留字段 */
+  soundNodeId?: string | null;
+  soundMode?: 'bgm' | 'sfx' | string | null;
+  soundFile?: string | null;
+  bgNodeId?: string | null;
+  iconNodeId?: string | null;
   bgFile?: string | null;
   iconFile?: string | null;
+  inEffect?: string;
+  inDurationSec?: number;
 }
 
 export interface GEditorAutoSkip {
@@ -45,6 +99,18 @@ export interface GEditorAutoSkip {
 export interface GEditorDialogueLine {
   speaker: string;
   text: string;
+  textSpeed?: number | null;
+}
+
+export const DEFAULT_TEXT_SPEED = 18;
+export const TEXT_SPEED_MIN = 1;
+export const TEXT_SPEED_MAX = 120;
+
+/** 台词逐字显示速度（字/秒） */
+export function resolveTextSpeed(raw: number | null | undefined): number {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return DEFAULT_TEXT_SPEED;
+  return Math.min(TEXT_SPEED_MAX, Math.max(TEXT_SPEED_MIN, Math.round(n)));
 }
 
 export interface GEditorNodeBase {
@@ -63,9 +129,15 @@ export interface GEditorFrameNode extends GEditorNodeBase {
   speaker: string;
   text: string;
   textPos: GEditorTextPos;
+  /** 台词逐字显示速度（字/秒） */
+  textSpeed?: number | null;
   audioFile: string | null;
   inEffect: GEditorEffectType;
   outEffect: GEditorEffectType;
+  /** 入效果时长（秒）；inEffect 为 none 时不使用 */
+  inDurationSec?: number;
+  /** 出效果时长（秒）；outEffect 为 none 时不使用 */
+  outDurationSec?: number;
   holdSec: number;
   autoSkip: GEditorAutoSkip | null;
   popup: GEditorPopup | null;
@@ -120,19 +192,15 @@ export function normalizeGameWinReward(
   };
 }
 
-/** exec 链上的 Popup（自动弹出，原 Subview） */
+/** @deprecated 旧 exec 链 Popup；加载时合并进上一帧 frame.popup */
 export interface GEditorPopupNode extends GEditorNodeBase {
   kind: 'popup';
   mode: 'auto';
-  /** 黑底 Texture 节点 id */
   bgNodeId?: string | null;
-  /** 道具 Texture 节点 id */
   iconNodeId?: string | null;
   bgFile: string | null;
   iconFile: string | null;
-  /** 出现动效：fade | zoom | fade-zoom | none */
   inEffect?: string;
-  /** 出现动效时长（秒） */
   inDurationSec?: number;
 }
 
@@ -260,6 +328,8 @@ export interface GEditorTextNode {
   speaker: string;
   text: string;
   textPos: GEditorTextPos;
+  /** 台词逐字显示速度（字/秒） */
+  textSpeed?: number | null;
   audioFile: string | null;
   target: string | null;
 }
@@ -325,15 +395,110 @@ export function geditorNodeHasCaption(node: GEditorFrameNode): boolean {
   return Boolean(node.speaker.trim() || node.text.trim());
 }
 
-/** exec popup / 旧 subview 节点的黑底与 icon 文件名 */
-export function geditorPopupExecBg(node: GEditorPopupNode): string | null {
-  const raw = node.bgFile;
+export function geditorPopupBg(popup: GEditorPopup | null | undefined): string | null {
+  const raw = popup?.bgFile;
   return raw ? String(raw) : null;
 }
 
-export function geditorPopupExecIcon(node: GEditorPopupNode): string | null {
-  const raw = node.iconFile;
+export function geditorPopupIcon(popup: GEditorPopup | null | undefined): string | null {
+  const raw = popup?.iconFile || popup?.textureFile;
   return raw ? String(raw) : null;
+}
+
+export function geditorPopupIsAuto(popup: GEditorPopup | null | undefined): boolean {
+  if (!popup) return false;
+  if (String(popup.mode || '').trim() === 'trigger') return false;
+  if (String(popup.mode || '').trim() === 'auto') return true;
+  return !popup.trigger && Boolean(geditorPopupBg(popup) || geditorPopupIcon(popup));
+}
+
+export const DEFAULT_TRIGGER_MISS_TIP = '点击高亮区域继续';
+
+/** trigger 未点中提示；缺省默认文案 */
+export function geditorPopupMissTip(popup: GEditorPopup | null | undefined): string {
+  const tip = String(popup?.missTip || '').trim();
+  return tip || DEFAULT_TRIGGER_MISS_TIP;
+}
+
+/** Popup 引脚 Sound（打开时播放） */
+export function geditorPopupSounds(popup: GEditorPopup | null | undefined): GEditorExecSoundEntry[] {
+  if (!popup) return [];
+  const fromList = normalizeFrameSounds(popup.sounds);
+  if (fromList.length) return fromList;
+  const file = popup.soundFile ? String(popup.soundFile).trim() : '';
+  if (!file) return [];
+  return [{
+    soundNodeId: popup.soundNodeId || null,
+    soundFile: file,
+    mode: normalizeGEditorSoundMode(popup.soundMode),
+  }];
+}
+
+/** @deprecated 使用 geditorPopupBg */
+export function geditorPopupExecBg(node: GEditorPopupNode): string | null {
+  return geditorPopupBg(node as unknown as GEditorPopup);
+}
+
+/** @deprecated 使用 geditorPopupIcon */
+export function geditorPopupExecIcon(node: GEditorPopupNode): string | null {
+  return geditorPopupIcon(node as unknown as GEditorPopup);
+}
+
+function popupFromLegacyExecNode(node: GEditorPopupNode): GEditorPopup {
+  return {
+    nodeId: node.id,
+    textureFile: node.iconFile,
+    bgFile: node.bgFile,
+    iconFile: node.iconFile,
+    bgNodeId: node.bgNodeId || null,
+    iconNodeId: node.iconNodeId || null,
+    inEffect: resolvePopupInEffect(node.inEffect),
+    inDurationSec: resolvePopupInDurationSec(node.inDurationSec),
+    mode: 'auto',
+    speaker: '',
+    text: '',
+    textPos: 'bottom',
+    audioFile: null,
+    trigger: null,
+    missTip: null,
+    sounds: null,
+    soundNodeId: null,
+    soundMode: null,
+    soundFile: null,
+  };
+}
+
+function normalizeFramePopup(raw: GEditorPopup | null | undefined): GEditorPopup | null {
+  if (!raw || typeof raw !== 'object') return null;
+  const iconFile = raw.iconFile || raw.textureFile || null;
+  const bgFile = raw.bgFile || null;
+  if (!iconFile && !bgFile && !raw.speaker?.trim() && !raw.text?.trim()) return null;
+  const modeRaw = String(raw.mode ?? '').trim();
+  const mode: GEditorPopupMode = modeRaw === 'trigger' ? 'trigger' : 'auto';
+  const sounds = normalizeFrameSounds(raw.sounds);
+  const primary = sounds[0] || null;
+  return {
+    nodeId: raw.nodeId || '',
+    textureFile: iconFile,
+    bgFile,
+    iconFile,
+    bgNodeId: raw.bgNodeId || null,
+    iconNodeId: raw.iconNodeId || null,
+    inEffect: resolvePopupInEffect(raw.inEffect),
+    inDurationSec: resolvePopupInDurationSec(raw.inDurationSec),
+    mode,
+    speaker: raw.speaker || '',
+    text: raw.text || '',
+    textPos: raw.textPos || 'bottom',
+    textSpeed: resolveTextSpeed(raw.textSpeed),
+    audioFile: raw.audioFile || null,
+    trigger: raw.trigger || null,
+    missTip: String(raw.missTip || '').trim() || null,
+    sounds: sounds.length ? sounds : null,
+    soundNodeId: primary?.soundNodeId || raw.soundNodeId || null,
+    soundMode: primary?.mode || raw.soundMode || null,
+    soundFile: primary?.soundFile || raw.soundFile || null,
+  };
 }
 
 /** 旧导出/同步工程把 popup 写成无 texture 的 frame（name=subview_xxx 或 popup_xxx） */
@@ -400,7 +565,7 @@ export function resolveGateBtnLayout(node: {
   };
 }
 
-/** 修补导出 JSON：popup/subview / gameGate 字段缺失时仍可播放 */
+/** 修补导出 JSON：旧 exec popup 合并进 frame.popup */
 export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorStoryConfig {
   const texById = new Map((cfg.textureNodes || []).map((t) => [t.id, t]));
   const sndById = new Map((cfg.soundNodes || []).map((s) => [s.id, s]));
@@ -415,34 +580,57 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
     return fallback ? String(fallback) : null;
   };
 
-  const nodes = cfg.nodes.map((node) => {
+  const nodeById = new Map(cfg.nodes.map((n) => [n.id, n]));
+  const mergedPopupByHost = new Map<string, GEditorPopup>();
+
+  for (let i = 0; i < cfg.sequence.length; i += 1) {
+    const id = cfg.sequence[i];
+    const node = nodeById.get(id);
+    if (!node || !isGEditorPopupExecNode(node)) continue;
+    const hostId = i > 0 ? cfg.sequence[i - 1] : null;
+    const host = hostId ? nodeById.get(hostId) : null;
+    if (!host || !isGEditorFrameNode(host)) continue;
+    const popup = popupFromLegacyExecNode({
+      ...node,
+      bgFile: resolveTexFile(node.bgNodeId, node.bgFile),
+      iconFile: resolveTexFile(node.iconNodeId, node.iconFile),
+    });
+    mergedPopupByHost.set(host.id, popup);
+  }
+
+  const keptIds = new Set<string>();
+  const newSequence: string[] = [];
+  for (const id of cfg.sequence) {
+    const node = nodeById.get(id);
+    if (node && isGEditorPopupExecNode(node)) continue;
+    keptIds.add(id);
+    newSequence.push(id);
+  }
+
+  const nodes = cfg.nodes
+    .filter((node) => !isGEditorPopupExecNode(node))
+    .map((node) => {
     const rawKind = (node as { kind?: string }).kind;
     if (rawKind === 'subview') {
       const legacy = node as GEditorPopupNode & {
         subviewBg?: string | null;
         subviewIcon?: string | null;
-        bgNodeId?: string | null;
-        iconNodeId?: string | null;
       };
-      return toPopupExecNode(
-        legacy,
-        resolveTexFile(legacy.bgNodeId, legacy.bgFile || legacy.subviewBg || null),
-        resolveTexFile(legacy.iconNodeId, legacy.iconFile || legacy.subviewIcon || null),
-        legacy.bgNodeId || null,
-        legacy.iconNodeId || null,
-      );
-    }
-
-    if (isGEditorPopupExecNode(node)) {
-      return {
-        ...node,
-        bgFile: resolveTexFile(node.bgNodeId, node.bgFile),
-        iconFile: resolveTexFile(node.iconNodeId, node.iconFile),
-        bgNodeId: node.bgNodeId || null,
-        iconNodeId: node.iconNodeId || null,
-        inEffect: resolvePopupInEffect(node.inEffect),
-        inDurationSec: resolvePopupInDurationSec(node.inDurationSec),
-      };
+      const hostId = newSequence.find((sid) => {
+        const host = nodeById.get(sid);
+        return host && isGEditorFrameNode(host);
+      });
+      if (hostId) {
+        mergedPopupByHost.set(hostId, popupFromLegacyExecNode({
+          ...legacy,
+          id: legacy.id,
+          kind: 'popup',
+          mode: 'auto',
+          bgFile: resolveTexFile(legacy.bgNodeId, legacy.bgFile || legacy.subviewBg || null),
+          iconFile: resolveTexFile(legacy.iconNodeId, legacy.iconFile || legacy.subviewIcon || null),
+        }));
+      }
+      return null;
     }
 
     if (isGEditorGameNode(node)) {
@@ -477,13 +665,10 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
 
     if (!isGEditorFrameNode(node)) return node;
 
-    const frame = node as GEditorFrameNode & {
-      subviewBg?: string | null;
-      subviewIcon?: string | null;
-      popupBg?: string | null;
-      popupIcon?: string | null;
-    };
+    const frame = node as GEditorFrameNode;
     const snd = frame.soundNodeId ? sndById.get(frame.soundNodeId) : null;
+    const textById = new Map((cfg.textNodes || []).map((t) => [t.id, t]));
+    const textNode = frame.textNodeId ? textById.get(frame.textNodeId) : null;
     const sounds = normalizeFrameSounds(
       frame.sounds?.length
         ? frame.sounds
@@ -496,26 +681,18 @@ export function normalizeGEditorStoryConfig(cfg: GEditorStoryConfig): GEditorSto
           : []),
     );
     const primary = sounds[0] || null;
-    const withSound: GEditorFrameNode = {
+    const merged = mergedPopupByHost.get(frame.id);
+    const popup = normalizeFramePopup(merged || frame.popup);
+    return {
       ...frame,
+      textSpeed: resolveTextSpeed(frame.textSpeed ?? textNode?.textSpeed),
       sounds,
       soundFile: primary?.soundFile || null,
       soundMode: primary?.mode || null,
       soundNodeId: primary?.soundNodeId || null,
+      popup,
     };
-    const bg = withSound.popupBg || withSound.subviewBg || null;
-    const icon = withSound.popupIcon || withSound.subviewIcon || null;
-    if (bg || icon) {
-      return toPopupExecNode(withSound, bg, icon);
-    }
+  }).filter((n): n is GEditorStoryNode => n != null);
 
-    const inferred = inferPopupExecFromLegacyFrameName(withSound.name);
-    if (inferred) {
-      return toPopupExecNode(withSound, inferred.bg, inferred.icon);
-    }
-
-    return withSound;
-  });
-
-  return { ...cfg, nodes };
+  return { ...cfg, sequence: newSequence.length ? newSequence : cfg.sequence.filter((id) => keptIds.has(id)), nodes };
 }

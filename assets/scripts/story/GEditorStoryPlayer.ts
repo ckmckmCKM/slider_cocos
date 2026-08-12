@@ -5,7 +5,7 @@
  * 待补：autoSkip blur/mosaic 视觉效果、语音 audioFile、非 fade 转场。
  */
 import {
-  _decorator, AudioClip, AudioSource, BlockInputEvents, Component, EventTouch, Node, SpriteFrame, Tween, UIOpacity, UITransform, tween, Vec3,
+  _decorator, AudioClip, AudioSource, BlockInputEvents, Color, Component, EventTouch, Graphics, Node, Sprite, SpriteFrame, Tween, UIOpacity, UITransform, instantiate, tween, Vec3,
 } from 'cc';
 import { DialogueView } from '../dialogue/DialogueView';
 import { DESIGN_H, DESIGN_W } from '../utils/Constants';
@@ -16,11 +16,14 @@ import {
 import { TipPopup } from '../ui/TipPopup';
 import { GEditorStoryPlayback } from './GEditorStoryPlayback';
 import {
-  GEditorFrameNode, GEditorGameNode, GEditorPopupNode, GEditorPopupTrigger, GEditorStoryConfig, GEditorStoryNode,
+  GEditorFrameNode, GEditorGameNode, GEditorPopup, GEditorPopupTrigger, GEditorStoryConfig, GEditorStoryNode,
   DEFAULT_POPUP_IN_EFFECT, DEFAULT_POPUP_IN_SEC, GEditorPopupInEffect,
-  geditorNodeExecSounds, geditorNodeHasCaption, geditorPopupExecBg, geditorPopupExecIcon, geditorTextureStepName,
-  inferPopupExecFromLegacyFrameName, isGEditorFrameNode, isGEditorGameNode, isGEditorPopupExecNode,
-  normalizeSfxStopOnFrameChange, resolveGateBtnLayout, resolvePopupInDurationSec, resolvePopupInEffect,
+  geditorNodeExecSounds, geditorNodeHasCaption, geditorPopupBg, geditorPopupIcon, geditorPopupIsAuto,
+  geditorPopupMissTip, geditorPopupSounds, geditorTextureStepName,
+  isGEditorFrameNode, isGEditorGameNode,
+  normalizeSfxStopOnFrameChange, resolveFrameInDurationSec, resolveFrameOutDurationSec,
+  resolveGateBtnLayout, resolvePopupInDurationSec, resolvePopupInEffect,
+  resolveTextSpeed,
 } from './GEditorTypes';
 
 const { ccclass } = _decorator;
@@ -29,6 +32,8 @@ const DEFAULT_FADE_SEC = 0.5;
 const DEFAULT_GAME_TIP = '123';
 const STORY_BGM_VOLUME = 0.35;
 const STORY_SFX_VOLUME = 1;
+/** GEditor 手机预览参考宽（styles.css --phone-height 520 → width≈240）；radius 按此换算到设计分辨率 */
+const GEDITOR_PHONE_REF_W = 240;
 
 @ccclass('GEditorStoryPlayer')
 export class GEditorStoryPlayer extends Component implements GEditorStoryPlayback {
@@ -49,17 +54,14 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
 
   private _popupRoot!: Node;
   private _popupOpacity!: UIOpacity;
+  private _popupBg!: Node;
   private _popupIcon!: Node;
   private _popupOpen = false;
+  private _popupIconScaleTween: Tween<Node> | null = null;
   private _popupHostFrameId: string | null = null;
   private _popupShownForHost = false;
-
-  private _subRoot!: Node;
-  private _subOpacity!: UIOpacity;
-  private _subBg!: Node;
-  private _subIcon!: Node;
-  private _subviewActive = false;
-  private _subIconScaleTween: Tween<Node> | null = null;
+  private _triggerHighlight: Node | null = null;
+  private _triggerHighlightPulse: Tween<UIOpacity> | null = null;
 
   private _winRewardRoot!: Node;
   private _winRewardOpacity!: UIOpacity;
@@ -123,21 +125,12 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     this._popupRoot.active = false;
     this._popupOpacity = this._popupRoot.getComponent(UIOpacity) || this._popupRoot.addComponent(UIOpacity);
     this._popupOpacity.opacity = 255;
+    this._popupBg = makeNode('bg', this._popupRoot, DESIGN_W, DESIGN_H);
+    fullWidget(this._popupBg);
+    setSprite(this._popupBg, null);
     this._popupIcon = makeNode('icon', this._popupRoot, DESIGN_W, DESIGN_H);
     setSprite(this._popupIcon, null);
     bindTouchEnd(this._popupRoot, () => this.onPopupTap());
-
-    this._subRoot = makeNode('geditorSubview', this.node, DESIGN_W, DESIGN_H);
-    fullWidget(this._subRoot);
-    this._subRoot.active = false;
-    this._subOpacity = this._subRoot.getComponent(UIOpacity) || this._subRoot.addComponent(UIOpacity);
-    this._subOpacity.opacity = 255;
-    this._subBg = makeNode('bg', this._subRoot, DESIGN_W, DESIGN_H);
-    fullWidget(this._subBg);
-    setSprite(this._subBg, null);
-    this._subIcon = makeNode('icon', this._subRoot, DESIGN_W, DESIGN_H);
-    setSprite(this._subIcon, null);
-    bindTouchEnd(this._subRoot, () => this.onSubviewTap());
 
     this._winRewardRoot = makeNode('geditorWinReward', this.node, DESIGN_W, DESIGN_H);
     fullWidget(this._winRewardRoot);
@@ -150,9 +143,15 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
 
     this._frameLayer.on(Node.EventType.TOUCH_END, this.onFrameTap, this);
 
+    // 独立可点热点：避免 Graphics 节点吃掉触摸却不冒泡到 frameLayer
+    this._triggerHighlight = makeNode('geditorTriggerHighlight', this._frameLayer, 0, 0);
+    this._triggerHighlight.addComponent(Graphics);
+    this._triggerHighlight.addComponent(UIOpacity).opacity = 160;
+    this._triggerHighlight.active = false;
+    this._triggerHighlight.on(Node.EventType.TOUCH_END, this.onTriggerHighlightTap, this);
+
     disableSpriteTrimSubtree(this._frameLayer);
     disableSpriteTrimSubtree(this._popupRoot);
-    disableSpriteTrimSubtree(this._subRoot);
     disableSpriteTrimSubtree(this._winRewardRoot);
 
     this._storyBgm = this.node.addComponent(AudioSource);
@@ -171,15 +170,18 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     if (this._frameLayer?.isValid) {
       this._frameLayer.off(Node.EventType.TOUCH_END, this.onFrameTap, this);
     }
+    if (this._triggerHighlight?.isValid) {
+      this._triggerHighlight.off(Node.EventType.TOUCH_END, this.onTriggerHighlightTap, this);
+    }
     if (this._gateTapCatcher?.isValid) {
       this._gateTapCatcher.off(Node.EventType.TOUCH_END, this.onGateBgTap, this);
     }
     if (this._frameAOpacity) this.stopOpacityTween(this._frameAOpacity);
     if (this._frameBOpacity) this.stopOpacityTween(this._frameBOpacity);
     if (this._popupOpacity) this.stopOpacityTween(this._popupOpacity);
-    if (this._subOpacity) this.stopOpacityTween(this._subOpacity);
-    this.stopSubIconScaleTween();
+    this.stopPopupIconScaleTween();
     this.stopWinRewardScaleTween();
+    this.hideTriggerHighlight();
     this.stopAllStoryAudio();
   }
 
@@ -232,11 +234,9 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     this.stopOpacityTween(this._frameAOpacity);
     this.stopOpacityTween(this._frameBOpacity);
     this.stopOpacityTween(this._popupOpacity);
-    this.stopOpacityTween(this._subOpacity);
     this.hideDialogue();
     this.hideGameGate();
     this.hidePopup();
-    this.hideSubview();
     this.node.active = false;
     this._busy = false;
     this._config = null;
@@ -252,7 +252,11 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
 
   /** 关卡通关后由 GameApp 回调 */
   completeGameNode() {
-    if (!this._gameActive) return;
+    console.log(`[GEditorStory] completeGameNode active=${this._gameActive} story=${this._storyName} seq=${this._seqIndex}`);
+    if (!this._gameActive) {
+      console.warn('[GEditorStory] completeGameNode ignored: game not active');
+      return;
+    }
     this._gameActive = false;
     this.hideGameGateButton();
     void this.runGameWinPresentation();
@@ -279,8 +283,8 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     this._frameBOpacity.opacity = 255;
     this.stopAllStoryAudio();
     this.hideWinReward();
+    this.hideTriggerHighlight();
     this.hidePopup();
-    this.hideSubview();
     this.hideDialogue();
     this.hideGameGate();
     this._popupShownForHost = false;
@@ -316,7 +320,7 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     e.propagationStopped = true;
     if (this._popupOpen) return;
     const node = this.currentNode();
-    if (!node || !isGEditorFrameNode(node) || !node.popup) {
+    if (!node || !isGEditorFrameNode(node) || !node.popup || geditorPopupIsAuto(node.popup)) {
       this.onStoryAdvance();
       return;
     }
@@ -327,13 +331,30 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
       return;
     }
     const local = ui.convertToNodeSpaceAR(e.getUILocation());
-    if (this.hitPopupTrigger(local.x, local.y, node.popup.trigger)) {
+    const tr = node.popup.trigger;
+    if (this.hitPopupTrigger(local.x, local.y, tr)) {
+      this.logTriggerHit(node.name, local.x, local.y, tr);
       void this.openPopup(node);
-    } else if (!this._popupShownForHost || this._popupHostFrameId !== node.id) {
-      void this.showStoryTip('点击高亮区域继续');
     } else {
-      this.onStoryAdvance();
+      this.logTriggerMiss(node.name, local.x, local.y, tr);
+      if (!this._popupShownForHost || this._popupHostFrameId !== node.id) {
+        void this.showStoryTip(geditorPopupMissTip(node.popup));
+      } else {
+        this.onStoryAdvance();
+      }
     }
+  }
+
+  private onTriggerHighlightTap(e: EventTouch) {
+    e.propagationStopped = true;
+    if (this._popupOpen || this._busy) return;
+    const node = this.currentNode();
+    if (!node || !isGEditorFrameNode(node) || !node.popup || geditorPopupIsAuto(node.popup)) return;
+
+    const ui = this._frameLayer.getComponent(UITransform);
+    const local = ui ? ui.convertToNodeSpaceAR(e.getUILocation()) : { x: 0, y: 0 };
+    this.logTriggerHit(node.name, local.x, local.y, node.popup.trigger);
+    void this.openPopup(node);
   }
 
   private onPopupTap() {
@@ -342,14 +363,10 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     this.onStoryAdvance();
   }
 
-  private onSubviewTap() {
-    if (this._busy || !this._subviewActive) return;
-    this.hideSubview();
-    this.onStoryAdvance();
-  }
-
   private onWinRewardTap() {
-    if (!this._winRewardActive || this._busy) return;
+    if (!this._winRewardActive) return;
+    // presentGameWinReward 等待点击期间 _busy/_winPresenting 为 true，仍须响应关闭
+    if (this._busy && !this._winPresenting) return;
     this.hideWinReward();
     if (this._winRewardResolve) {
       const done = this._winRewardResolve;
@@ -364,7 +381,6 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     if (this._dialogueView?.isOpen()) return;
     if (this._tipPopup?.isOpen()) return;
     if (this._popupOpen) return;
-    if (this._subviewActive) return;
     if (this._gameActive) {
       void this.showStoryTip(this._gameTip);
       return;
@@ -372,7 +388,7 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
 
     const node = this.currentNode();
     if (node && isGEditorFrameNode(node) && node.popup && !this.popupRequirementMet(node)) {
-      void this.showStoryTip('点击高亮区域继续');
+      void this.showStoryTip(geditorPopupMissTip(node.popup));
       return;
     }
 
@@ -381,6 +397,9 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
 
   private popupRequirementMet(frame: GEditorFrameNode): boolean {
     if (!frame.popup) return true;
+    if (geditorPopupIsAuto(frame.popup)) {
+      return this._popupShownForHost && this._popupHostFrameId === frame.id;
+    }
     return this._popupShownForHost && this._popupHostFrameId === frame.id;
   }
 
@@ -416,37 +435,21 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
       return;
     }
 
-    if (isGEditorPopupExecNode(node)) {
-      await this.presentPopupExecNode(node);
-      return;
-    }
-
     if (isGEditorFrameNode(node)) {
       const stepName = geditorTextureStepName(node.textureFile);
       if (!stepName) {
-        const inferred = inferPopupExecFromLegacyFrameName(node.name);
-        if (inferred) {
-          await this.presentPopupExecNode({
-            id: node.id,
-            name: node.name,
-            order: node.order,
-            next: node.next,
-            nextExplicit: node.nextExplicit,
-            kind: 'popup',
-            mode: 'auto',
-            bgFile: inferred.bg,
-            iconFile: inferred.icon,
-          });
-          return;
-        }
         console.warn('[GEditorStory] frame without texture, skip', node.id);
         await this.skipToNextPresentableNode();
         return;
       }
+      const prevId = index > 0 ? this._sequence[index - 1] : null;
+      const prevNode = prevId ? this._nodeById.get(prevId) : null;
+      const prevFrame =
+        prevNode && isGEditorFrameNode(prevNode) ? prevNode : null;
       if (isFirst) {
         await this.fadeInFrame(stepName, node);
       } else {
-        await this.crossfadeFrame(stepName, node);
+        await this.crossfadeFrame(stepName, node, prevFrame);
       }
     }
   }
@@ -459,7 +462,7 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
       const next = this.currentNode();
       if (!next) continue;
 
-      if (isGEditorPopupExecNode(next) || isGEditorGameNode(next)) {
+      if (isGEditorGameNode(next)) {
         await this.presentSequenceIndex(this._seqIndex, false);
         return;
       }
@@ -468,21 +471,6 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
         const stepName = geditorTextureStepName(next.textureFile);
         if (stepName) {
           await this.presentSequenceIndex(this._seqIndex, false);
-          return;
-        }
-        const inferred = inferPopupExecFromLegacyFrameName(next.name);
-        if (inferred) {
-          await this.presentPopupExecNode({
-            id: next.id,
-            name: next.name,
-            order: next.order,
-            next: next.next,
-            nextExplicit: next.nextExplicit,
-            kind: 'popup',
-            mode: 'auto',
-            bgFile: inferred.bg,
-            iconFile: inferred.icon,
-          });
           return;
         }
       }
@@ -582,7 +570,6 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     this.logNode(node);
     this.hideDialogue();
     this.hidePopup();
-    this.hideSubview();
     this._gameActive = true;
     this._gameLevel = this.resolveLevelId(node.levelId);
     this._gameTip = node.gateTip?.trim() || DEFAULT_GAME_TIP;
@@ -603,49 +590,23 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     await this.setupGameGateButton();
   }
 
-  private async presentPopupExecNode(node: GEditorPopupNode) {
-    this.logNode(node);
-    this.hideDialogue();
-    this.hidePopup();
-    this.hideGameGate();
-    this._frameLayer.active = true;
-    this.frontFrame().node.active = true;
-
-    const bgName = geditorTextureStepName(geditorPopupExecBg(node));
-    const iconName = geditorTextureStepName(geditorPopupExecIcon(node));
-    const [bgSf, iconSf] = await Promise.all([
-      bgName ? ResCache.storyStepSprite(this._storyName, bgName) : null,
-      iconName ? ResCache.storyStepSprite(this._storyName, iconName) : null,
-    ]);
-
-    this.applyFullscreenSprite(this._subBg, bgSf);
-    this.applyNativeSprite(this._subIcon, iconSf);
-    this._subIcon.setPosition(0, 0, 0);
-
-    this._subRoot.active = true;
-    this._subviewActive = true;
-    await this.animatePopupExecIn(node);
-    disableSpriteTrimSubtree(this._subRoot);
-    this._subRoot.setSiblingIndex(this.node.children.length - 1);
-  }
-
-  private stopSubIconScaleTween() {
-    if (this._subIconScaleTween) {
-      this._subIconScaleTween.stop();
-      this._subIconScaleTween = null;
+  private stopPopupIconScaleTween() {
+    if (this._popupIconScaleTween) {
+      this._popupIconScaleTween.stop();
+      this._popupIconScaleTween = null;
     }
   }
 
-  private async animatePopupExecIn(node: GEditorPopupNode): Promise<void> {
-    const scaleRef = { tween: this._subIconScaleTween };
+  private async animatePopupIn(popup: GEditorPopup): Promise<void> {
+    const scaleRef = { tween: this._popupIconScaleTween };
     await this.animateInEffect(
-      this._subOpacity,
-      this._subIcon,
-      resolvePopupInEffect(node.inEffect),
-      resolvePopupInDurationSec(node.inDurationSec),
+      this._popupOpacity,
+      this._popupIcon,
+      resolvePopupInEffect(popup.inEffect),
+      resolvePopupInDurationSec(popup.inDurationSec),
       scaleRef,
     );
-    this._subIconScaleTween = scaleRef.tween;
+    this._popupIconScaleTween = scaleRef.tween;
   }
 
   private async animateInEffect(
@@ -698,7 +659,7 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
           })
           .start();
         if (scaleTweenRef) scaleTweenRef.tween = tw;
-        if (scaleNode === this._subIcon) this._subIconScaleTween = tw;
+        if (scaleNode === this._popupIcon) this._popupIconScaleTween = tw;
         if (scaleNode === this._winRewardIcon) this._winRewardScaleTween = tw;
       }
 
@@ -707,21 +668,32 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   }
 
   private async runGameWinPresentation() {
+    // 先收起剧情内滑块，避免挡住后续帧 / 通关道具
+    this.hideMountedStoryGame();
+
     const node = this.currentNode();
     if (!node || !isGEditorGameNode(node)) {
-      void this.advanceSequence();
-      return;
-    }
-    const textureFile = node.winReward?.textureFile;
-    if (!textureFile) {
+      console.log('[GEditorStory] runGameWinPresentation: no game node, advance');
       void this.advanceSequence();
       return;
     }
 
+    // 奖励可选：未配置或文件名无效时直接继续
+    const texName = geditorTextureStepName(node.winReward?.textureFile || '');
+    if (!texName) {
+      console.log('[GEditorStory] runGameWinPresentation: no winReward, advance');
+      void this.advanceSequence();
+      return;
+    }
+
+    console.log('[GEditorStory] runGameWinPresentation: show winReward', texName);
     this._winPresenting = true;
     this._busy = true;
     try {
-      await this.presentGameWinReward(textureFile);
+      const shown = await this.presentGameWinReward(texName);
+      if (!shown) {
+        console.warn('[GEditorStory] winReward skip (no texture)', this._storyName, texName);
+      }
     } finally {
       this._winPresenting = false;
       this._busy = false;
@@ -746,10 +718,11 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     this._winRewardIcon.setScale(1, 1, 1);
   }
 
-  private async presentGameWinReward(textureFile: string): Promise<void> {
-    const texName = geditorTextureStepName(textureFile);
-    if (!texName) return;
+  /** @returns 是否实际展示了通关道具（false 表示跳过） */
+  private async presentGameWinReward(texName: string): Promise<boolean> {
     const sf = await ResCache.storyStepSprite(this._storyName, texName);
+    if (!sf) return false;
+
     this.applyNativeSprite(this._winRewardIcon, sf);
     this._winRewardIcon.setPosition(0, 0, 0);
     this._winRewardRoot.active = true;
@@ -770,17 +743,7 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     await new Promise<void>((resolve) => {
       this._winRewardResolve = resolve;
     });
-  }
-
-  private hideSubview() {
-    setSprite(this._subIcon, null);
-    this.stopOpacityTween(this._subOpacity);
-    this.stopSubIconScaleTween();
-    this._subRoot.active = false;
-    this._subOpacity.opacity = 255;
-    this._subIcon.setScale(1, 1, 1);
-    this._subviewActive = false;
-    this.hideMountedStoryGame();
+    return true;
   }
 
   private resolveLevelId(raw: number | string | undefined): number {
@@ -794,7 +757,6 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   private async fadeInFrame(stepName: string, frame: GEditorFrameNode) {
     this.logNode(frame);
     this.hidePopup();
-    this.hideSubview();
     this.hideDialogue();
     this.hideGameGate();
 
@@ -803,15 +765,19 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     this.applyFullscreenSprite(front.node, sf);
     front.node.active = true;
     front.opacity.opacity = 0;
-    await this.fadeOpacity(front.opacity, 255);
+    const inSec = resolveFrameInDurationSec(frame.inEffect, frame.inDurationSec, this._fadeSec);
+    await this.fadeOpacitySec(front.opacity, 255, inSec);
     disableSpriteTrimSubtree(this._frameLayer);
     await this.afterFramePresented(frame);
   }
 
-  private async crossfadeFrame(stepName: string, frame: GEditorFrameNode) {
+  private async crossfadeFrame(
+    stepName: string,
+    frame: GEditorFrameNode,
+    prevFrame: GEditorFrameNode | null,
+  ) {
     this.logNode(frame);
     this.hidePopup();
-    this.hideSubview();
     this.hideDialogue();
     this.hideGameGate();
     this._frameLayer.active = true;
@@ -827,21 +793,32 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     this.stopOpacityTween(front.opacity);
     this.stopOpacityTween(back.opacity);
 
-    await new Promise<void>((resolve) => {
-      let done = 0;
-      const onDone = () => {
-        done += 1;
-        if (done >= 2) resolve();
-      };
-      tween(front.opacity)
-        .to(this._fadeSec, { opacity: 0 })
-        .call(onDone)
-        .start();
-      tween(back.opacity)
-        .to(this._fadeSec, { opacity: 255 })
-        .call(onDone)
-        .start();
-    });
+    const inSec = resolveFrameInDurationSec(frame.inEffect, frame.inDurationSec, this._fadeSec);
+    const outSec = prevFrame
+      ? resolveFrameOutDurationSec(prevFrame.outEffect, prevFrame.outDurationSec, this._fadeSec)
+      : this._fadeSec;
+    const durSec = Math.max(inSec, outSec);
+
+    if (durSec <= 0) {
+      front.opacity.opacity = 0;
+      back.opacity.opacity = 255;
+    } else {
+      await new Promise<void>((resolve) => {
+        let done = 0;
+        const onDone = () => {
+          done += 1;
+          if (done >= 2) resolve();
+        };
+        tween(front.opacity)
+          .to(durSec, { opacity: 0 })
+          .call(onDone)
+          .start();
+        tween(back.opacity)
+          .to(durSec, { opacity: 255 })
+          .call(onDone)
+          .start();
+      });
+    }
 
     front.node.active = false;
     front.opacity.opacity = 255;
@@ -853,6 +830,7 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   private async afterFramePresented(frame: GEditorFrameNode) {
     this._popupHostFrameId = frame.popup ? frame.id : null;
     this._popupShownForHost = false;
+    this.hideTriggerHighlight();
 
     if (frame.autoSkip) {
       const sec = Math.max(0.1, Number(frame.autoSkip.durationSec) || 1.5);
@@ -873,6 +851,15 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
       return;
     }
 
+    if (frame.popup && geditorPopupIsAuto(frame.popup)) {
+      await this.openPopup(frame);
+      return;
+    }
+
+    if (frame.popup && !geditorPopupIsAuto(frame.popup)) {
+      this.showTriggerHighlight(frame.popup.trigger);
+    }
+
     if (frame.holdSec > 0) {
       this._holdTimer = setTimeout(() => {
         this._holdTimer = null;
@@ -883,34 +870,133 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
 
   private async openPopup(frame: GEditorFrameNode) {
     const popup = frame.popup;
-    if (!popup?.textureFile) return;
+    if (!popup) return;
 
-    const stepName = geditorTextureStepName(popup.textureFile);
-    const sf = await ResCache.storyStepSprite(this._storyName, stepName);
-    this.applyNativeSprite(this._popupIcon, sf);
+    const bgName = geditorTextureStepName(geditorPopupBg(popup));
+    const iconName = geditorTextureStepName(geditorPopupIcon(popup));
+    if (!bgName && !iconName) return;
+
+    this.hideTriggerHighlight();
+
+    const [bgSf, iconSf] = await Promise.all([
+      bgName ? ResCache.storyStepSprite(this._storyName, bgName) : null,
+      iconName ? ResCache.storyStepSprite(this._storyName, iconName) : null,
+    ]);
+
+    this.applyFullscreenSprite(this._popupBg, bgSf);
+    this.applyNativeSprite(this._popupIcon, iconSf);
     this._popupIcon.setPosition(0, 0, 0);
 
     this._popupRoot.active = true;
     this._popupOpen = true;
     this._popupShownForHost = true;
     this._popupHostFrameId = frame.id;
-    this._popupOpacity.opacity = 0;
-    await this.fadeOpacity(this._popupOpacity, 255);
+    await this.animatePopupIn(popup);
     disableSpriteTrimSubtree(this._popupRoot);
     this._popupRoot.setSiblingIndex(this.node.children.length - 1);
 
+    await this.playPopupSounds(popup);
+
     if (popup.speaker.trim() || popup.text.trim()) {
-      await this.presentDialogue(popup.speaker, popup.text);
+      await this.presentDialogue(popup.speaker, popup.text, popup.textSpeed);
+    }
+  }
+
+  /** Popup 引脚 Sound：打开时播放（SFX 叠加；BGM 仅在未播放同曲时切换） */
+  private async playPopupSounds(popup: GEditorPopup) {
+    const specs = geditorPopupSounds(popup);
+    if (!specs.length) return;
+
+    for (const spec of specs) {
+      const key = geditorTextureStepName(spec.soundFile);
+      if (!key) continue;
+      const clip = await ResCache.storyAudioClip(this._storyName, spec.soundFile);
+      if (!clip) continue;
+
+      if (spec.mode === 'bgm') {
+        if (this._currentBgmKey === key && this._storyBgm.playing) continue;
+        this.stopStoryBgm();
+        this._storyBgm.clip = clip;
+        this._storyBgm.loop = true;
+        this._storyBgm.play();
+        this._currentBgmKey = key;
+        continue;
+      }
+
+      this.playStorySfx(clip, false);
     }
   }
 
   private hidePopup() {
     setSprite(this._popupIcon, null);
+    setSprite(this._popupBg, null);
     this.stopOpacityTween(this._popupOpacity);
+    this.stopPopupIconScaleTween();
     this._popupRoot.active = false;
     this._popupOpacity.opacity = 255;
+    this._popupIcon.setScale(1, 1, 1);
     this._popupOpen = false;
     this.hideMountedStoryGame();
+  }
+
+  /** GEditor radius 为手机预览 CSS px（宽≈240）；换算到 DESIGN_W */
+  private triggerRadiusDesign(trigger: GEditorPopupTrigger): number {
+    const raw = Math.max(4, Number(trigger.radius) || 10);
+    return raw * (DESIGN_W / GEDITOR_PHONE_REF_W);
+  }
+
+  private triggerCenterLocal(trigger: GEditorPopupTrigger): { x: number; y: number } {
+    return {
+      x: trigger.x * DESIGN_W - DESIGN_W / 2,
+      y: DESIGN_H / 2 - trigger.y * DESIGN_H,
+    };
+  }
+
+  private triggerHitDist(
+    localX: number,
+    localY: number,
+    trigger: GEditorPopupTrigger,
+  ): { dist: number; r: number } {
+    const c = this.triggerCenterLocal(trigger);
+    const dx = localX - c.x;
+    const dy = localY - c.y;
+    return { dist: Math.sqrt(dx * dx + dy * dy), r: this.triggerRadiusDesign(trigger) };
+  }
+
+  private logTriggerHit(
+    frameName: string,
+    localX: number,
+    localY: number,
+    trigger: GEditorPopupTrigger | null | undefined,
+  ) {
+    if (!trigger) {
+      console.log(`[GEditorStory] trigger hit frame=${frameName} (no hotspot, any tap)`);
+      return;
+    }
+    const { dist, r } = this.triggerHitDist(localX, localY, trigger);
+    console.log(
+      `[GEditorStory] trigger hit frame=${frameName}`
+      + ` local=(${localX.toFixed(1)},${localY.toFixed(1)})`
+      + ` hotspot=(${trigger.x},${trigger.y}) dist=${dist.toFixed(1)} r=${r.toFixed(1)}`,
+    );
+  }
+
+  private logTriggerMiss(
+    frameName: string,
+    localX: number,
+    localY: number,
+    trigger: GEditorPopupTrigger | null | undefined,
+  ) {
+    if (!trigger) {
+      console.log(`[GEditorStory] trigger miss frame=${frameName} local=(${localX.toFixed(1)},${localY.toFixed(1)})`);
+      return;
+    }
+    const { dist, r } = this.triggerHitDist(localX, localY, trigger);
+    console.log(
+      `[GEditorStory] trigger miss frame=${frameName}`
+      + ` local=(${localX.toFixed(1)},${localY.toFixed(1)})`
+      + ` hotspot=(${trigger.x},${trigger.y}) dist=${dist.toFixed(1)} r=${r.toFixed(1)}`,
+    );
   }
 
   private hitPopupTrigger(
@@ -919,12 +1005,62 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     trigger: GEditorPopupTrigger | null | undefined,
   ): boolean {
     if (!trigger) return true;
-    const nx = (localX + DESIGN_W / 2) / DESIGN_W;
-    const ny = (DESIGN_H / 2 - localY) / DESIGN_H;
-    const dx = (nx - trigger.x) * DESIGN_W;
-    const dy = (ny - trigger.y) * DESIGN_H;
-    const r = Math.max(8, trigger.radius || 10);
-    return dx * dx + dy * dy <= r * r;
+    const { dist, r } = this.triggerHitDist(localX, localY, trigger);
+    return dist <= r;
+  }
+
+  private showTriggerHighlight(trigger: GEditorPopupTrigger | null | undefined) {
+    const node = this._triggerHighlight;
+    if (!node?.isValid || !trigger) {
+      this.hideTriggerHighlight();
+      return;
+    }
+    const g = node.getComponent(Graphics);
+    const op = node.getComponent(UIOpacity);
+    const ut = node.getComponent(UITransform);
+    if (!g || !op || !ut) return;
+
+    const r = this.triggerRadiusDesign(trigger);
+    const c = this.triggerCenterLocal(trigger);
+    // 命中盒与绘制半径一致，保证点红圈必进 onTriggerHighlightTap
+    const hit = Math.ceil(r * 2 + 8);
+    ut.setContentSize(hit, hit);
+    node.setPosition(c.x, c.y, 0);
+    g.clear();
+    g.lineWidth = Math.max(4, r * 0.08);
+    g.strokeColor = new Color(255, 60, 60, 220);
+    g.fillColor = new Color(255, 40, 40, 55);
+    g.circle(0, 0, r);
+    g.fill();
+    g.stroke();
+
+    if (this._triggerHighlightPulse) {
+      this._triggerHighlightPulse.stop();
+      this._triggerHighlightPulse = null;
+    }
+    op.opacity = 200;
+    node.active = true;
+    node.setSiblingIndex(this._frameLayer.children.length - 1);
+    this._triggerHighlightPulse = tween(op)
+      .to(0.7, { opacity: 90 })
+      .to(0.7, { opacity: 200 })
+      .union()
+      .repeatForever()
+      .start();
+  }
+
+  private hideTriggerHighlight() {
+    if (this._triggerHighlightPulse) {
+      this._triggerHighlightPulse.stop();
+      this._triggerHighlightPulse = null;
+    }
+    const node = this._triggerHighlight;
+    if (!node?.isValid) return;
+    const g = node.getComponent(Graphics);
+    if (g) g.clear();
+    const op = node.getComponent(UIOpacity);
+    if (op) op.opacity = 160;
+    node.active = false;
   }
 
   private frameHasDialogue(frame: GEditorFrameNode): boolean {
@@ -936,27 +1072,42 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   /** 台词播完后的下一步：须延迟到当前 present 调用栈结束后再推进（对齐 StoryPlayer.leaveDialogueToStep） */
   private deferAdvanceSequence() {
     this.scheduleOnce(() => {
+      const node = this.currentNode();
+      if (
+        node
+        && isGEditorFrameNode(node)
+        && node.popup
+        && geditorPopupIsAuto(node.popup)
+        && !this._popupShownForHost
+      ) {
+        void this.openPopup(node);
+        return;
+      }
       void this.advanceSequence();
     }, 0);
   }
 
   private async presentDialogueChain(frame: GEditorFrameNode): Promise<void> {
     if (frame.speaker?.trim() || frame.text?.trim()) {
-      await this.presentDialogue(frame.speaker, frame.text);
+      await this.presentDialogue(frame.speaker, frame.text, frame.textSpeed);
     }
     const chain = frame.dialogueChain || [];
     for (const line of chain) {
       if (!line.speaker?.trim() && !line.text?.trim()) continue;
-      await this.presentDialogue(line.speaker || '', line.text || '');
+      await this.presentDialogue(line.speaker || '', line.text || '', line.textSpeed);
     }
   }
 
-  private async presentDialogue(speaker: string, text: string): Promise<void> {
+  private async presentDialogue(
+    speaker: string,
+    text: string,
+    textSpeed?: number | null,
+  ): Promise<void> {
     const view = await this.ensureDialogueView();
     if (!view) return;
 
     return new Promise((resolve) => {
-      view.show(speaker, text, () => resolve());
+      view.show(speaker, text, () => resolve(), resolveTextSpeed(textSpeed));
     });
   }
 
@@ -1043,16 +1194,15 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
   private syncOverlaySiblingOrder() {
     const tipNode = this._tipPopup?.node;
     const gateNode = this._gateRoot;
-    const tipOnTree = tipNode?.parent === this.node;
-    const gateOnTree = gateNode?.parent === this.node;
 
-    if (tipOnTree && gateOnTree) {
-      gateNode!.setSiblingIndex(this.node.children.length - 1);
-      tipNode!.setSiblingIndex(this.node.children.length - 2);
-    } else if (gateOnTree && gateNode?.active) {
+    if (gateNode?.parent === this.node && gateNode.active) {
       gateNode.setSiblingIndex(this.node.children.length - 1);
-    } else if (tipOnTree) {
-      tipNode!.setSiblingIndex(this.node.children.length - 1);
+    }
+    if (tipNode?.parent === this.node && tipNode.active) {
+      tipNode.setSiblingIndex(this.node.children.length - 1);
+    }
+    if (this._winRewardRoot?.parent === this.node && this._winRewardRoot.active) {
+      this._winRewardRoot.setSiblingIndex(this.node.children.length - 1);
     }
   }
 
@@ -1129,12 +1279,16 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     }
   }
 
-  private fadeOpacity(target: UIOpacity, opacity: number): Promise<void> {
+  private fadeOpacitySec(target: UIOpacity, opacity: number, sec: number): Promise<void> {
+    if (sec <= 0) {
+      target.opacity = opacity;
+      return Promise.resolve();
+    }
     return new Promise((resolve) => {
       this.stopOpacityTween(target);
       this._fadeResolvers.set(target, resolve);
       tween(target)
-        .to(this._fadeSec, { opacity })
+        .to(sec, { opacity })
         .call(() => {
           if (this._fadeResolvers.get(target) === resolve) {
             this._fadeResolvers.delete(target);
@@ -1145,26 +1299,28 @@ export class GEditorStoryPlayer extends Component implements GEditorStoryPlaybac
     });
   }
 
+  private fadeOpacity(target: UIOpacity, opacity: number): Promise<void> {
+    return this.fadeOpacitySec(target, opacity, this._fadeSec);
+  }
+
   private logNode(node: GEditorStoryNode) {
+    const meta = `order=${node.order} name=${node.name}`;
     if (isGEditorGameNode(node)) {
       console.log(
-        `[GEditorStory:${this._storyName}] seq ${this._seqIndex}: game level=${this.resolveLevelId(node.levelId)} gate=${geditorTextureStepName(node.gateFrame)} tip="${node.gateTip || ''}"`,
-      );
-      return;
-    }
-    if (isGEditorPopupExecNode(node)) {
-      console.log(
-        `[GEditorStory:${this._storyName}] seq ${this._seqIndex}: popup ${geditorTextureStepName(geditorPopupExecBg(node))}+${geditorTextureStepName(geditorPopupExecIcon(node))}`,
+        `[GEditorStory:${this._storyName}] seq ${this._seqIndex}: ${meta} game level=${this.resolveLevelId(node.levelId)} gate=${geditorTextureStepName(node.gateFrame)} tip="${node.gateTip || ''}"`,
       );
       return;
     }
     const step = geditorTextureStepName(node.textureFile);
     const cap = geditorNodeHasCaption(node) ? ` "${node.speaker}"` : '';
-    const pop = node.popup ? ` popup=${geditorTextureStepName(node.popup.textureFile)}` : '';
-    console.log(`[GEditorStory:${this._storyName}] seq ${this._seqIndex}: ${step}${cap}${pop}`);
+    const pop = node.popup
+      ? ` popup=${geditorTextureStepName(geditorPopupIcon(node.popup))}${geditorPopupIsAuto(node.popup) ? ' auto' : ''}`
+      : '';
+    console.log(`[GEditorStory:${this._storyName}] seq ${this._seqIndex}: ${meta} ${step}${cap}${pop}`);
   }
 
   private async finish() {
+    this.hideMountedStoryGame();
     this._busy = true;
     this.stopAllStoryAudio();
     const tip = await this.ensureTipPopup();

@@ -6,6 +6,7 @@ import { GameSwitches } from '../utils/GameSwitches';
 import { SoundMgr } from '../utils/SoundMgr';
 import { addLabel, makeNode, paintRoundButton } from '../utils/UIFactory';
 import { GmPopup } from './GmPopup';
+import { StorySelectPopup } from './StorySelectPopup';
 
 const { ccclass } = _decorator;
 
@@ -16,6 +17,7 @@ const DRAG_CLICK_THRESHOLD = 10;
 
 export interface GmEntryHandlers {
   onOpenMenu: () => void;
+  onSelectStory: (storyName: string) => void;
 }
 
 /**
@@ -26,7 +28,9 @@ export interface GmEntryHandlers {
 export class GmEntry extends Component {
   private _gmBtn: Node | null = null;
   private _gmPopup: GmPopup | null = null;
+  private _storySelectPopup: StorySelectPopup | null = null;
   private _onOpenMenu: (() => void) | null = null;
+  private _onSelectStory: ((storyName: string) => void) | null = null;
   private _dragOffsetX = 0;
   private _dragOffsetY = 0;
   private _touchStartUiX = 0;
@@ -35,6 +39,7 @@ export class GmEntry extends Component {
 
   async setup(handlers: GmEntryHandlers): Promise<void> {
     this._onOpenMenu = handlers.onOpenMenu;
+    this._onSelectStory = handlers.onSelectStory;
     if (this._gmBtn) return;
 
     const switches = await GameSwitches.load();
@@ -56,13 +61,16 @@ export class GmEntry extends Component {
 
   closePopupIfOpen() {
     if (this._gmPopup?.isOpen()) this._gmPopup.close();
+    if (this._storySelectPopup?.isOpen()) this._storySelectPopup.close();
   }
 
   onDestroy() {
     this.unbindGmBtnDrag();
     this._gmBtn = null;
     this._gmPopup = null;
+    this._storySelectPopup = null;
     this._onOpenMenu = null;
+    this._onSelectStory = null;
   }
 
   private unbindGmBtnDrag() {
@@ -156,12 +164,31 @@ export class GmEntry extends Component {
     this._gmPopup.setOpenMenuHandler(() => {
       this._onOpenMenu?.();
     });
+    this._gmPopup.setOpenStorySelectHandler(() => {
+      void this.openStorySelect();
+    });
     this.bringToFront();
     return this._gmPopup;
   }
 
+  private async ensureStorySelectPopup(): Promise<StorySelectPopup> {
+    if (this._storySelectPopup) return this._storySelectPopup;
+    this._storySelectPopup = StorySelectPopup.create(this.node);
+    this._storySelectPopup.setSelectHandler((storyName) => {
+      this._onSelectStory?.(storyName);
+    });
+    this.bringToFront();
+    return this._storySelectPopup;
+  }
+
   private async openGm() {
     const popup = await this.ensureGmPopup();
+    this.bringToFront();
+    popup.open();
+  }
+
+  private async openStorySelect() {
+    const popup = await this.ensureStorySelectPopup();
     this.bringToFront();
     popup.open();
   }
@@ -171,11 +198,17 @@ export class GmEntry extends Component {
     if (!this.node?.isValid) return;
     const parent = this.node;
     const top = parent.children.length - 1;
+    let raised = 0;
     if (this._gmPopup?.node?.isValid) {
       this._gmPopup.node.setSiblingIndex(top);
-      if (this._gmBtn?.isValid) this._gmBtn.setSiblingIndex(Math.max(0, top - 1));
-    } else if (this._gmBtn?.isValid) {
-      this._gmBtn.setSiblingIndex(top);
+      raised++;
+    }
+    if (this._storySelectPopup?.node?.isValid) {
+      this._storySelectPopup.node.setSiblingIndex(top);
+      raised++;
+    }
+    if (this._gmBtn?.isValid) {
+      this._gmBtn.setSiblingIndex(Math.max(0, top - raised));
     }
   }
 

@@ -13,6 +13,8 @@
 | 任务 | 文件 |
 |------|------|
 | 入口 / UI | `assets/scripts/game/GameApp.ts` |
+| 局内 UI 壳 | `assets/scripts/game/SliderGameView.ts`（驱动 `blocky/BoardController`） |
+| GM 入口 | `assets/scripts/game/GmEntry.ts` |
 | 棋盘逻辑 | `assets/scripts/blocky/BoardController.ts` |
 | 关卡解析 | `assets/scripts/blocky/LevelParser.ts` |
 | 机关视觉 | `assets/scripts/blocky/EnvHelpers.ts` |
@@ -23,14 +25,17 @@
 | 剧情类型 / 导出格式 | `assets/scripts/story/GEditorTypes.ts` |
 | 剧情播放 | `assets/scripts/story/GEditorStoryPlayer.ts` |
 | 剧情 bundle | `assets/bundle/story1/story.json` + `sprite/step/*` + `audio/*` |
-| 剧情内滑块 | `GameApp.enterGameFromStory` → `SliderGameView.setStoryWinHandler` → `completeGameNode` |
-| Game 通关道具 | Game 节点 Reward 引脚 → `winReward.textureFile`；动效写死在 `GEditorStoryPlayer`（§4.7.4） |
-| Frame 多音频 | 多个 Sound 连同一 Frame → `sounds[]`（1 BGM + 多 SFX，§4.7.5） |
+| 剧情 `com_` 资源 | story bundle 未命中时回退 `com` bundle（`ResCache.storyStepSprite` / `storyAudioClip`） |
+| 剧情内对局 | `GameApp.enterGameFromStory` → `SliderGameView`（Block Reveal）→ `completeGameNode` |
+| Game 通关道具 | Game 节点 Reward 引脚 → `winReward.textureFile`；动效写死在 `GEditorStoryPlayer`（§4.7.5） |
+| Frame 多音频 | 多个 Sound 连同一 Frame → `sounds[]`（1 BGM + 多 SFX，§4.7.6） |
+| Frame 热点 Popup | Popup 引脚 → `frame.popup`；trigger / `missTip` / Sound（§4.7.4） |
 | SFX 切帧停止 | Sound 节点「切帧停止」（仅 SFX 显示）→ `stopOnFrameChange`；BGM 不受此控制 |
 
 ## 禁止误改
 
 - **`assets/scripts/game/BoardController.ts`** — 旧版「超级滑块」，已废弃
+- **`SliderGame` / `SliderGameView`** — 局内 UI 预制体名沿用 Unity；逻辑在 `blocky/BoardController`，勿另建 `assets/scripts/slider/`
 - 不要将 board 按**行**解析；Unity 格式是**列优先**（见架构文档 §5.3）
 - 不要用「实心包围盒扩盘」修关卡尺寸；仅补**方块占用格** Ground
 - **GEditor 逻辑**写在 `assets/scripts/story/`，不要放进 `assets/bundle/` 目录
